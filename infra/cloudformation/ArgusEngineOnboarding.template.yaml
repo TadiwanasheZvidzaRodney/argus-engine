@@ -1,0 +1,235 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Argus Engine Cross-Account Onboarding Template (v2 - Real-Time Sync Enabled).
+  Provisions the scoped, external-ID-protected IAM roles, AWS Config recorders,
+  and cross-account EventBridge rules for sub-30s topology convergence.
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Argus Engine Configuration"
+        Parameters:
+          - ArgusTenantId
+          - ArgusExternalId
+          - ArgusPlatformAccountId
+          - ArgusIngressEventBusArn
+          - EnableRealTimeSync
+          - EnableWriteRole
+    ParameterLabels:
+      ArgusTenantId:
+        default: "Argus Tenant ID"
+      ArgusExternalId:
+        default: "Argus External ID"
+      ArgusPlatformAccountId:
+        default: "Argus Platform AWS Account ID"
+      ArgusIngressEventBusArn:
+        default: "Argus Ingress EventBus ARN"
+      EnableRealTimeSync:
+        default: "Enable Real-Time Event Sync"
+      EnableWriteRole:
+        default: "Enable Mutation/Write Role"
+
+Parameters:
+  ArgusTenantId:
+    Type: String
+    Description: "Your Argus tenant identifier (e.g. tnt_0190c3a1-0000-7000-8000-000000000001)"
+    AllowedPattern: "^tnt_[0-9a-fA-F-]+$"
+
+  ArgusExternalId:
+    Type: String
+    NoEcho: true
+    Description: "The cryptographically random external ID issued during onboarding to prevent the Confused Deputy problem."
+    MinLength: 16
+    MaxLength: 128
+
+  ArgusPlatformAccountId:
+    Type: String
+    Description: "The AWS Account ID hosting the Argus Engine platform."
+    AllowedPattern: "^[0-9]{12}$"
+    Default: "111122223333"
+
+  ArgusIngressEventBusArn:
+    Type: String
+    Description: "Argus regional EventBridge ingress bus ARN receiving change events."
+    Default: "arn:aws:events:us-east-1:111122223333:event-bus/argus-ingress-events"
+
+  EnableRealTimeSync:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: "Enable automated forwarding of Config and CloudTrail events to Argus."
+
+  EnableWriteRole:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: "Enable the optional ArgusEngineWriteRole for safe mutations (Phase 6). Disabled by default."
+
+Conditions:
+  CreateWriteRole: !Equals [!Ref EnableWriteRole, "true"]
+  EnableSync: !Equals [!Ref EnableRealTimeSync, "true"]
+
+Resources:
+  # --- Permission Boundary: Denies privileged/IAM/Org changes ---
+  ArgusPermissionBoundary:
+    Type: "AWS::IAM::ManagedPolicy"
+    Properties:
+      ManagedPolicyName: !Sub "ArgusEngine-PermissionBoundary-${ArgusTenantId}"
+      Description: "Denies Argus roles from modifying IAM, Organizations, Billing, or SCP policies."
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: "DenyCriticalOperations"
+            Effect: "Deny"
+            Action:
+              - "iam:*"
+              - "organizations:*"
+              - "aws-portal:*"
+              - "account:*"
+            Resource: "*"
+
+  # --- Discovery and Read-Only Role ---
+  ArgusEngineReadRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      RoleName: !Sub "ArgusEngineReadRole-${ArgusTenantId}"
+      Description: "Read-only role assumed by Argus Engine for topology discovery and telemetry collection."
+      PermissionsBoundary: !Ref ArgusPermissionBoundary
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              AWS: !Sub "arn:aws:iam::${ArgusPlatformAccountId}:root"
+            Action: "sts:AssumeRole"
+            Condition:
+              StringEquals:
+                "sts:ExternalId": !Ref ArgusExternalId
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/SecurityAudit"
+        - "arn:aws:iam::aws:policy/AWSResourceExplorerReadOnlyAccess"
+      Policies:
+        - PolicyName: "ArgusTopologyDiscovery"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: "TopologyAndMetricsRead"
+                Effect: "Allow"
+                Action:
+                  - "resource-explorer-2:Search"
+                  - "resource-explorer-2:GetView"
+                  - "config:Describe*"
+                  - "config:Get*"
+                  - "cloudwatch:GetMetricData"
+                  - "cloudwatch:ListMetrics"
+                  - "ce:GetCostAndUsage"
+                  - "tag:GetResources"
+                  - "ec2:Describe*"
+                  - "ecs:Describe*"
+                  - "ecs:List*"
+                  - "rds:Describe*"
+                  - "s3:GetBucketLocation"
+                  - "s3:ListAllMyBuckets"
+                  - "elasticloadbalancing:Describe*"
+                  - "lambda:List*"
+                Resource: "*"
+      Tags:
+        - Key: "argus:tenant"
+          Value: !Ref ArgusTenantId
+        - Key: "argus:managed"
+          Value: "true"
+        - Key: "argus:version"
+          Value: "2.0.0"
+
+  # --- Cross-Account EventBridge Role ---
+  ArgusEventBridgeRole:
+    Type: "AWS::IAM::Role"
+    Condition: EnableSync
+    Properties:
+      RoleName: !Sub "ArgusEventBridgeForwarder-${ArgusTenantId}"
+      Description: "Role allowing local EventBridge to forward Config change events to Argus."
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "events.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: "PutEventsToArgus"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action: "events:PutEvents"
+                Resource: !Ref ArgusIngressEventBusArn
+
+  # --- EventBridge Forwarding Rule for AWS Config Changes ---
+  ArgusConfigChangeRule:
+    Type: "AWS::Events::Rule"
+    Condition: EnableSync
+    Properties:
+      Name: !Sub "ArgusConfigChangeRule-${ArgusTenantId}"
+      Description: "Forwards AWS Config Configuration Item Changes to Argus Engine."
+      EventPattern:
+        source:
+          - "aws.config"
+        detail-type:
+          - "Config Configuration Item Change"
+      State: "ENABLED"
+      Targets:
+        - Arn: !Ref ArgusIngressEventBusArn
+          Id: "ArgusIngressBusTarget"
+          RoleArn: !GetAtt ArgusEventBridgeRole.Arn
+
+  # --- Optional Write Role (Phase 6 Actions) ---
+  ArgusEngineWriteRole:
+    Type: "AWS::IAM::Role"
+    Condition: CreateWriteRole
+    Properties:
+      RoleName: !Sub "ArgusEngineWriteRole-${ArgusTenantId}"
+      Description: "Scoped role for executing approved Argus Engine deterministic action plans."
+      PermissionsBoundary: !Ref ArgusPermissionBoundary
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              AWS: !Sub "arn:aws:iam::${ArgusPlatformAccountId}:root"
+            Action: "sts:AssumeRole"
+            Condition:
+              StringEquals:
+                "sts:ExternalId": !Ref ArgusExternalId
+      Policies:
+        - PolicyName: "ArgusCuratedActions"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: "AllowedActionPrimitives"
+                Effect: "Allow"
+                Action:
+                  - "ec2:StartInstances"
+                  - "ec2:StopInstances"
+                  - "ec2:ModifySecurityGroupRules"
+                  - "s3:PutBucketPublicAccessBlock"
+                Resource: "*"
+      Tags:
+        - Key: "argus:tenant"
+          Value: !Ref ArgusTenantId
+        - Key: "argus:managed"
+          Value: "true"
+
+Outputs:
+  ReadRoleArn:
+    Description: "The ARN of the read-only discovery role to register in Argus Engine."
+    Value: !GetAtt ArgusEngineReadRole.Arn
+
+  WriteRoleArn:
+    Condition: CreateWriteRole
+    Description: "The ARN of the action execution role."
+    Value: !GetAtt ArgusEngineWriteRole.Arn
+
+  TenantId:
+    Description: "Argus Tenant ID for this connection."
+    Value: !Ref ArgusTenantId

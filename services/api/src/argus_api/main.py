@@ -24,12 +24,21 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from argus_api.credentials import CredentialBroker
 from argus_api.db import build_engine, probe
 from argus_api.errors import install_exception_handlers
 from argus_api.middleware import IdempotencyMiddleware, SecurityHeadersMiddleware
+from argus_api.routers.accounts import router as accounts_router
+from argus_api.routers.audit import router as audit_router
 from argus_api.routers.demo import build_demo_router
+from argus_api.routers.events import router as events_router
 from argus_api.routers.health import build_health_router
+from argus_api.routers.me import router as me_router
+from argus_api.routers.members import router as members_router
 from argus_api.routers.meta import build_meta_router
+from argus_api.routers.resources import router as resources_router
+from argus_api.routers.sync import router as sync_router
+from argus_api.routers.topology import router as topology_router
 from argus_api.settings import ApiSettings
 
 
@@ -95,11 +104,20 @@ def create_app(
     app.state.settings = settings
     app.state.engine = engine
     app.state.idempotency_store = idempotency_store
+    app.state.credential_broker = CredentialBroker()
 
     install_exception_handlers(app)
 
     app.include_router(build_health_router(settings, lambda: checks))
     app.include_router(build_meta_router(settings))
+    app.include_router(me_router)
+    app.include_router(members_router)
+    app.include_router(accounts_router)
+    app.include_router(audit_router)
+    app.include_router(sync_router)
+    app.include_router(events_router)
+    app.include_router(resources_router)
+    app.include_router(topology_router)
     if settings.docs_enabled or settings.env is not Environment.PROD:
         app.include_router(build_demo_router(settings))
 

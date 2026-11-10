@@ -15,6 +15,13 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { href: "/overview", label: "Overview" },
+  { href: "/resources", label: "Resources" },
+  { href: "/aws-accounts", label: "AWS Accounts" },
+  { href: "/sync", label: "Sync Console" },
+  { href: "/events", label: "Event Stream" },
+  { href: "/snapshots", label: "Snapshots" },
+  { href: "/settings/members", label: "Team & Access" },
+  { href: "/audit", label: "Audit Log" },
   { href: "/topology", label: "Topology", phase: "P5" },
   { href: "/findings", label: "Findings", phase: "P7" },
   { href: "/actions", label: "Actions", phase: "P6" },

@@ -22,6 +22,7 @@ class ServerFrameType(StrEnum):
     HELLO = "hello"
     ACK = "ack"
     DELTA = "delta"
+    SNAPSHOT_REQUIRED = "graph.snapshot_required"
     PING = "ping"
     ERROR = "error"
 
@@ -29,6 +30,7 @@ class ServerFrameType(StrEnum):
 class ClientFrameType(StrEnum):
     SUBSCRIBE = "subscribe"
     UNSUBSCRIBE = "unsubscribe"
+    RESUME = "resume"
     PONG = "pong"
 
 
@@ -53,6 +55,7 @@ class ClientFrame(BaseModel):
     v: Literal[1] = PROTOCOL_VERSION
     type: ClientFrameType
     topics: list[str] = Field(default_factory=list, max_length=50)
+    resume_from_seq: int | None = Field(default=None, ge=0)
 
 
 class HelloData(BaseModel):

@@ -1,20 +1,33 @@
-import { Badge, Card, EmptyState } from "@argus/ui";
+import { Badge, Button, Card, EmptyState } from "@argus/ui";
 import type { ServiceMeta } from "@argus/contracts";
+import Link from "next/link";
 
 import { apiFetch } from "@/lib/api";
 
-async function loadMeta(): Promise<ServiceMeta | null> {
-  try {
-    return await apiFetch<ServiceMeta>("/api/v1/meta", { timeoutMs: 2_000 });
-  } catch {
-    return null;
-  }
+interface TopologySummary {
+  tenant_id: string;
+  nodes: number;
+  edges: number;
+}
+
+interface AccountItem {
+  id: string;
+  account_id: string;
 }
 
 export const dynamic = "force-dynamic";
 
+async function loadData() {
+  const [meta, summary, accounts] = await Promise.all([
+    apiFetch<ServiceMeta>("/api/v1/meta", { timeoutMs: 2_000 }).catch(() => null),
+    apiFetch<TopologySummary>("/api/v1/topology/summary", { timeoutMs: 2_000 }).catch(() => null),
+    apiFetch<AccountItem[]>("/api/v1/aws-accounts", { timeoutMs: 2_000 }).catch(() => []),
+  ]);
+  return { meta, summary, accounts };
+}
+
 export default async function OverviewPage() {
-  const meta = await loadMeta();
+  const { meta, summary, accounts } = await loadData();
 
   return (
     <div className="flex flex-col gap-6">
@@ -22,7 +35,7 @@ export default async function OverviewPage() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Overview</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            The execution spine is live; AWS discovery starts in Phase 2.
+            Real-time multi-tenant AWS topology graph and execution engine.
           </p>
         </div>
         <Badge tone={meta ? "success" : "warning"}>
@@ -32,29 +45,59 @@ export default async function OverviewPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card title="Connected accounts">
-          <p className="text-2xl font-semibold tabular-nums">0</p>
-          <p className="mt-1 text-xs text-muted-foreground">Onboarding lands in Phase 1.</p>
+          <p className="text-2xl font-semibold tabular-nums">{accounts.length}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {accounts.length > 0 ? "Accounts in registry" : "No accounts connected yet."}
+          </p>
         </Card>
-        <Card title="Resources">
-          <p className="text-2xl font-semibold tabular-nums">—</p>
-          <p className="mt-1 text-xs text-muted-foreground">Discovery lands in Phase 2.</p>
+        <Card title="Graph Resources">
+          <p className="text-2xl font-semibold tabular-nums">{summary?.nodes ?? 0}</p>
+          <p className="mt-1 text-xs text-muted-foreground">Ingested into Neo4j graph.</p>
+        </Card>
+        <Card title="Relationships">
+          <p className="text-2xl font-semibold tabular-nums">{summary?.edges ?? 0}</p>
+          <p className="mt-1 text-xs text-muted-foreground">Topological edges resolved.</p>
         </Card>
         <Card title="Open findings">
           <p className="text-2xl font-semibold tabular-nums">—</p>
-          <p className="mt-1 text-xs text-muted-foreground">Security rules land in Phase 7.</p>
-        </Card>
-        <Card title="Graph freshness">
-          <p className="text-2xl font-semibold tabular-nums">n/a</p>
-          <p className="mt-1 text-xs text-muted-foreground">Real-time sync lands in Phase 3.</p>
+          <p className="mt-1 text-xs text-muted-foreground">Security engine lands in Phase 7.</p>
         </Card>
       </div>
 
-      <Card title="Get started" description="What this build can already do.">
-        <EmptyState
-          title="No AWS account connected yet"
-          description="Phase 0 proves the platform spine: contracts, idempotent writes, structured logs, traces, migrations, and deployment. Connect an account in Phase 1 to see your estate here."
-        />
-      </Card>
+      {accounts.length === 0 ? (
+        <Card title="Get started" description="Connect your AWS estate.">
+          <EmptyState
+            title="No AWS account connected yet"
+            description="Run our CloudFormation template in your management or workload account to discover your topology in Neo4j."
+            action={
+              <Link href="/aws-accounts/onboard" className="mt-2">
+                <Button size="sm">Connect AWS Account</Button>
+              </Link>
+            }
+          />
+        </Card>
+      ) : (
+        <Card title="Active Topology" description="Summary of current tenant graph state.">
+          <div className="flex flex-col gap-2">
+            <p className="text-sm text-foreground">
+              Your topology graph contains <strong>{summary?.nodes ?? 0} resources</strong> and{" "}
+              <strong>{summary?.edges ?? 0} relationships</strong>.
+            </p>
+            <div className="flex items-center gap-3 pt-2">
+              <Link href="/sync">
+                <Button size="sm" variant="secondary">
+                  View Sync Console →
+                </Button>
+              </Link>
+              <Link href="/aws-accounts">
+                <Button size="sm" variant="ghost">
+                  Manage Accounts
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </Card>
+      )}
 
       <Card title="Platform status">
         <dl className="grid gap-3 text-xs sm:grid-cols-3">

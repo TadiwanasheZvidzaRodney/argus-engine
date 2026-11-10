@@ -1,9 +1,4 @@
-"""WebSocket delta gateway.
-
-Phase 0 ships the connection lifecycle, tenant binding, heartbeat, and frame
-contract. Phase 3 replaces :class:`SubscriptionHub` with a Redis pub/sub bridge
-fed by the event workers; the wire contract stays the same.
-"""
+"""WebSocket delta gateway with Redis Stream resumption and PubSub relay."""
 
 from __future__ import annotations
 
@@ -23,10 +18,12 @@ from argus_core.settings import Settings
 from argus_core.telemetry import configure_telemetry
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
+from redis.asyncio import Redis
 
 from argus_ws.protocol import (
     MAX_FRAME_BYTES,
     ClientFrame,
+    ClientFrameType,
     DeltaData,
     ErrorData,
     HelloData,
@@ -43,7 +40,7 @@ CLOSE_TRY_AGAIN_LATER = 1013
 
 
 class SubscriptionHub:
-    """Per-connection topic subscription state (Phase 3: Redis-backed relay)."""
+    """Per-connection topic subscription state."""
 
     def __init__(self) -> None:
         self.topics: set[str] = set()
@@ -69,7 +66,6 @@ class Connection:
         self.seq += 1
         payload = frame.model_dump_json()
         if len(payload.encode("utf-8")) > MAX_FRAME_BYTES:
-            # Never split frames silently: tell the client to resync instead.
             payload = ServerFrame(
                 type=ServerFrameType.ERROR,
                 seq=self.seq,
@@ -88,7 +84,6 @@ class Connection:
 
 def _resolve_tenant(settings: Settings, requested: str | None) -> str:
     if settings.auth_mode == "oidc":
-        # Phase 1 replaces this with JWT claim extraction at the edge.
         raise Unauthorized("Token authentication is not enabled in this build.")
     if requested is None:
         return settings.default_tenant_id or new_tenant_id()
@@ -103,15 +98,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     configure_telemetry(settings)
     log = get_logger("argus_ws")
 
+    redis_client: Redis | None = None
+    if settings.env.value != "test":
+        try:
+            redis_client = Redis.from_url(settings.redis_url, decode_responses=True)
+        except Exception:
+            redis_client = None
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         log.info("gateway.started", heartbeat_seconds=settings.idempotency_lock_seconds)
         yield
+        if redis_client is not None:
+            await redis_client.aclose()
         log.info("gateway.stopped")
 
     app = FastAPI(
         title="Argus WebSocket Gateway", version=settings.service_version, lifespan=lifespan
     )
+    app.state.redis = redis_client
 
     @app.get("/healthz")
     async def healthz() -> dict[str, Any]:
@@ -120,7 +125,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/readyz")
     async def readyz() -> dict[str, Any]:
-        # Phase 3 adds Redis pub/sub readiness; the gateway has no other deps yet.
         report = await liveness_report(settings)
         return report.model_dump(mode="json")
 
@@ -146,6 +150,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ).model_dump(mode="json"),
         )
         log.info("connection.opened", tenant_id=tenant)
+
+        pubsub_task: asyncio.Task[None] | None = None
+
+        async def listen_pubsub() -> None:
+            if redis_client is None:
+                return
+            pubsub = redis_client.pubsub()
+            await pubsub.subscribe(f"channel:{tenant}:deltas")
+            try:
+                async for message in pubsub.listen():
+                    if message["type"] == "message":
+                        try:
+                            delta_payload = json.loads(message["data"])
+                            await connection.send(ServerFrameType.DELTA, delta_payload)
+                        except Exception:  # noqa: S110
+                            pass
+            finally:
+                await pubsub.unsubscribe(f"channel:{tenant}:deltas")
+                await pubsub.close()
+
+        if redis_client is not None:
+            pubsub_task = asyncio.create_task(listen_pubsub())
 
         try:
             while True:
@@ -175,12 +201,52 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     )
                     continue
 
-                if frame.type.value == "subscribe":
+                if frame.type is ClientFrameType.SUBSCRIBE:
                     topics = hub.subscribe(frame.topics)
                     await connection.send(ServerFrameType.ACK, {"topics": sorted(topics)})
-                elif frame.type.value == "unsubscribe":
+                elif frame.type is ClientFrameType.UNSUBSCRIBE:
                     topics = hub.unsubscribe(frame.topics)
                     await connection.send(ServerFrameType.ACK, {"topics": sorted(topics)})
+                elif frame.type is ClientFrameType.RESUME:
+                    if frame.resume_from_seq is None or redis_client is None:
+                        await connection.send(
+                            ServerFrameType.SNAPSHOT_REQUIRED,
+                            {"reason": "resumption not supported in this environment"},
+                        )
+                    else:
+                        # Inspect stream for sequence
+                        stream_key = f"stream:{tenant}:deltas"
+                        try:
+                            entries = await redis_client.xrange(
+                                stream_key, min="-", max="+", count=100
+                            )
+                            # Replay entries with seq >= resume_from_seq
+                            replayed = 0
+                            for _, data in entries or []:
+                                if data and isinstance(data, dict):
+                                    entry_seq = int(data.get("seq", 0))
+                                    if entry_seq >= frame.resume_from_seq:
+                                        payload = json.loads(str(data.get("payload", "{}")))
+                                        await connection.send(ServerFrameType.DELTA, payload)
+                                        replayed += 1
+                            if replayed == 0 and entries:
+                                await connection.send(
+                                    ServerFrameType.SNAPSHOT_REQUIRED,
+                                    {
+                                        "reason": (
+                                            "requested sequence has expired from stream retention"
+                                        )
+                                    },
+                                )
+                            else:
+                                await connection.send(
+                                    ServerFrameType.ACK, {"resumed_count": replayed}
+                                )
+                        except Exception:
+                            await connection.send(
+                                ServerFrameType.SNAPSHOT_REQUIRED,
+                                {"reason": "stream error during replay"},
+                            )
                 else:  # pong
                     continue
         except WebSocketDisconnect:
@@ -188,6 +254,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as exc:
             log.warning("connection.aborted", tenant_id=tenant, error=type(exc).__name__)
             await websocket.close(code=CLOSE_TRY_AGAIN_LATER)
+        finally:
+            if pubsub_task is not None:
+                pubsub_task.cancel()
 
     return app
 

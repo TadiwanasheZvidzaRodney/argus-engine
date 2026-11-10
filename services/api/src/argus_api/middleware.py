@@ -15,6 +15,9 @@ from argus_core.idempotency import (
 )
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+READ_ONLY_POST_PATHS = frozenset(
+    {"/api/v1/topology/query", "/api/v1/topology/paths", "/api/v1/topology/blast-radius"}
+)
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
 _JSON_CONTENT_TYPE = "application/json"
 
@@ -68,7 +71,11 @@ class IdempotencyMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        if scope["method"] in SAFE_METHODS or not scope["path"].startswith(self.protected_prefix):
+        if (
+            scope["method"] in SAFE_METHODS
+            or scope["path"] in READ_ONLY_POST_PATHS
+            or not scope["path"].startswith(self.protected_prefix)
+        ):
             await self.app(scope, receive, send)
             return
 
