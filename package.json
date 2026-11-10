@@ -1,0 +1,32 @@
+{
+  "name": "argus-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Argus Engine \u2014 AWS topology, telemetry, and safe action engine.",
+  "packageManager": "pnpm@12.18.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "e2e": "pnpm --filter @argus/web e2e",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json,css}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,md,json,css}\"",
+    "contracts": "uv run python -m argus_core.schema_export export packages/contracts/schemas",
+    "contracts:check": "uv run python -m argus_core.schema_export check packages/contracts/schemas"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "turbo": "^2.5.0",
+    "typescript": "^5.7.2",
+    "@eslint/js": "^9.17.0",
+    "eslint": "^9.17.0",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "globals": "^15.14.0",
+    "typescript-eslint": "^8.18.0"
+  }
+}

@@ -1,0 +1,123 @@
+{
+  "$id": "https://schemas.argus.example.com/event-envelope.v1.json",
+  "additionalProperties": false,
+  "description": "CloudEvents-compatible envelope carried by every internal event.",
+  "properties": {
+    "account_id": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9]{12}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Account Id"
+    },
+    "data": {
+      "additionalProperties": true,
+      "title": "Data",
+      "type": "object"
+    },
+    "id": {
+      "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "idempotency_key": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "region": {
+      "anyOf": [
+        {
+          "pattern": "^[a-z]{2}(-[a-z]+)+-[0-9]$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Region"
+    },
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source": {
+      "pattern": "^argus\\.[a-z0-9]+(-[a-z0-9]+)*$",
+      "title": "Source",
+      "type": "string"
+    },
+    "subject": {
+      "anyOf": [
+        {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Subject"
+    },
+    "tenant_id": {
+      "pattern": "^tnt_[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "title": "Tenant Id",
+      "type": "string"
+    },
+    "time": {
+      "format": "date-time",
+      "title": "Time",
+      "type": "string"
+    },
+    "trace_id": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Trace Id"
+    },
+    "type": {
+      "enum": [
+        "argus.resource.discovered.v1",
+        "argus.resource.changed.v1",
+        "argus.resource.deleted.v1",
+        "argus.sync.completed.v1",
+        "argus.finding.detected.v1",
+        "argus.action.requested.v1",
+        "argus.action.approved.v1",
+        "argus.action.executed.v1",
+        "argus.action.failed.v1",
+        "argus.cost.updated.v1",
+        "argus.audit.appended.v1",
+        "argus.worker.heartbeat.v1"
+      ],
+      "pattern": "^argus\\.[a-z0-9]+(\\.[a-z0-9]+)+\\.v[0-9]+$",
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "source",
+    "tenant_id",
+    "idempotency_key"
+  ],
+  "title": "Argus event envelope v1",
+  "type": "object"
+}

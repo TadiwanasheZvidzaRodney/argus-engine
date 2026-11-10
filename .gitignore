@@ -1,1 +1,55 @@
-docs/
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# --- Node ---
+node_modules/
+.pnpm-store/
+.next/
+out/
+.turbo/
+coverage/
+*.tsbuildinfo
+next-env.d.ts
+
+# --- Terraform ---
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+.tflint.hcl.lock
+
+# --- Local env / secrets ---
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+!**/fixtures/**/*.pem
+
+# --- Tooling / OS ---
+.DS_Store
+.idea/
+.vscode/
+*.log
+tmp/
+.playwright/
+test-results/
+storybook-static/
+sbom/

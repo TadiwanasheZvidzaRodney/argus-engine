@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-foreground: var(--fg);
+  --color-muted-foreground: var(--fg-muted);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-fg);
+  --color-info: var(--info);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --font-sans: var(--font-geist-sans, ui-sans-serif, system-ui, sans-serif);
+  --font-mono: var(--font-geist-mono, ui-monospace, "SFMono-Regular", monospace);
+}
+
+:root {
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --surface-muted: #f0f2f5;
+  --fg: #10141c;
+  --fg-muted: #5b6472;
+  --border: #dfe3e9;
+  --accent: #2f6feb;
+  --accent-fg: #ffffff;
+  --info: #2f6feb;
+  --success: #1a7f4b;
+  --warning: #a05a00;
+  --danger: #c0341d;
+  color-scheme: light;
+}
+
+.dark {
+  --bg: #0b0e14;
+  --surface: #121722;
+  --surface-muted: #1a2130;
+  --fg: #e7ebf3;
+  --fg-muted: #9aa4b5;
+  --border: #242c3b;
+  --accent: #5b8dfa;
+  --accent-fg: #06101f;
+  --info: #6ea2ff;
+  --success: #4ec98a;
+  --warning: #e3a44b;
+  --danger: #ff6b5b;
+  color-scheme: dark;
+}
+
+* {
+  border-color: var(--border);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Graph canvas placeholders keep layout stable before React Flow lands. */
+.canvas-grid {
+  background-image:
+    linear-gradient(
+      to right,
+      color-mix(in oklab, var(--border) 55%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--border) 55%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 24px 24px;
+}

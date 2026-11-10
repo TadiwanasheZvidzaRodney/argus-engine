@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: Contract Drift Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.5.11"
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Verify schemas match Python models
+        run: uv run python -m argus_core.schema_export check packages/contracts/schemas
+
+  backend:
+    name: Backend (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.5.11"
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Install dependencies
+        run: uv sync --all-groups
+      - name: Lint (Ruff)
+        run: uv run ruff check .
+      - name: Formatting (Ruff)
+        run: uv run ruff format --check .
+      - name: Typecheck (mypy)
+        run: uv run mypy
+      - name: Unit & Integration Tests (pytest)
+        run: uv run pytest --cov --cov-report=xml
+      - name: Dependency Audit (pip-audit)
+        run: uv run pip-audit
+
+  frontend:
+    name: Frontend (TypeScript)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "12.18.0"
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Formatting Check (Prettier)
+        run: pnpm format:check
+      - name: Lint (ESLint)
+        run: pnpm turbo run lint
+      - name: Typecheck (tsc)
+        run: pnpm turbo run typecheck
+      - name: Component & Unit Tests (Vitest)
+        run: pnpm turbo run test
+      - name: Build
+        run: pnpm turbo run build
+      - name: Install Playwright Browsers
+        run: pnpm --filter @argus/web exec playwright install --with-deps chromium
+      - name: End-to-End Tests (Playwright)
+        run: pnpm --filter @argus/web e2e
+
+  security:
+    name: Security & Secret Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,6 @@
+.next
+node_modules
+coverage
+*.md
+packages/contracts/schemas
+pnpm-lock.yaml

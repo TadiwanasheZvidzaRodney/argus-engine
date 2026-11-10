@@ -1,0 +1,95 @@
+name: CD
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: cd-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Install Cosign (Container Signing)
+        uses: sigstore/cosign-installer@v3
+
+      - name: Install Syft (SBOM)
+        uses: anchore/sbom-action/download-syft@v0.17.9
+
+      - name: Build and Push Images
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          for svc in api ws worker; do
+            IMAGE="$ECR_REGISTRY/argus-$svc:$IMAGE_TAG"
+            docker buildx build \
+              --file services/$svc/Dockerfile \
+              --tag "$IMAGE" \
+              --tag "$ECR_REGISTRY/argus-$svc:latest" \
+              --push .
+
+            # Generate SBOM
+            syft "$IMAGE" -o spdx-json > "sbom-$svc.json"
+
+            # Sign image with Cosign
+            cosign sign --yes "$IMAGE"
+          done
+
+          # Build and push Web
+          IMAGE_WEB="$ECR_REGISTRY/argus-web:$IMAGE_TAG"
+          docker buildx build \
+            --file apps/web/Dockerfile \
+            --tag "$IMAGE_WEB" \
+            --tag "$ECR_REGISTRY/argus-web:latest" \
+            --push .
+          syft "$IMAGE_WEB" -o spdx-json > "sbom-web.json"
+          cosign sign --yes "$IMAGE_WEB"
+
+      - name: Run Database Migrations
+        env:
+          ARGUS_DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+        run: |
+          uv sync --package argus-api
+          cd services/api
+          uv run alembic upgrade head
+
+      - name: Update ECS Services
+        run: |
+          for svc in api ws worker web; do
+            aws ecs update-service \
+              --cluster argus-cluster-staging \
+              --service argus-$svc-staging \
+              --force-new-deployment \
+              --region us-east-1
+          done
+
+      - name: Smoke Test Staging Deployment
+        run: |
+          STAGING_URL="${{ vars.STAGING_API_URL }}"
+          curl -sf "$STAGING_URL/healthz"
+          curl -sf "$STAGING_URL/readyz"
+          curl -sf "$STAGING_URL/api/v1/meta"
