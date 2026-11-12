@@ -137,6 +137,9 @@ async def get_current_auth(
     token: str | None = None
     if authorization and authorization.startswith("Bearer "):
         token = authorization.removeprefix("Bearer ").strip()
+    elif authorization and authorization.startswith("stub:"):
+        # Local/test stub identity may be passed directly without the Bearer prefix.
+        token = authorization.strip()
     elif "argus_session" in request.cookies:
         token = request.cookies["argus_session"]
 

@@ -16,7 +16,15 @@ from argus_core.idempotency import (
 
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 READ_ONLY_POST_PATHS = frozenset(
-    {"/api/v1/topology/query", "/api/v1/topology/paths", "/api/v1/topology/blast-radius"}
+    {
+        "/api/v1/topology/query",
+        "/api/v1/topology/paths",
+        "/api/v1/topology/blast-radius",
+        "/api/v1/actions/parse-intent",
+        "/api/v1/security/attack-paths",
+        "/api/v1/telemetry/snapshot",
+        "/api/v1/admin/dr-drill",
+    }
 )
 IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
 _JSON_CONTENT_TYPE = "application/json"

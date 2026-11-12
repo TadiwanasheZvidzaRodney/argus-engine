@@ -22,10 +22,12 @@ const NAV: NavItem[] = [
   { href: "/snapshots", label: "Snapshots" },
   { href: "/settings/members", label: "Team & Access" },
   { href: "/audit", label: "Audit Log" },
-  { href: "/topology", label: "Topology", phase: "P5" },
-  { href: "/findings", label: "Findings", phase: "P7" },
-  { href: "/actions", label: "Actions", phase: "P6" },
-  { href: "/cost", label: "Cost", phase: "P8" },
+  { href: "/topology", label: "Topology" },
+  { href: "/security", label: "Security" },
+  { href: "/findings", label: "Findings" },
+  { href: "/actions", label: "Actions" },
+  { href: "/cost", label: "Cost" },
+  { href: "/compliance", label: "Compliance & Ops" },
 ];
 
 export function AppShell({
@@ -52,7 +54,7 @@ export function AppShell({
 
         <nav aria-label="Primary" className="flex flex-1 flex-col gap-1 px-2 pb-4">
           {NAV.map((item) => {
-            const active = pathname === item.href;
+            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
             if (item.phase) {
               return (
                 <span

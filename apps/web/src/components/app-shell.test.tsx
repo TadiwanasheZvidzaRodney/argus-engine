@@ -32,15 +32,21 @@ describe("AppShell", () => {
     expect(screen.getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page");
   });
 
-  it("disables navigation for unbuilt phases", () => {
+  it("links implemented phases including topology, security, actions, cost, and compliance", () => {
     render(
       <AppShell session={DEMO_SESSION} onSignOut={async () => {}}>
         <p>content</p>
       </AppShell>,
     );
-    const topology = screen.getByText("Topology");
-    expect(topology.closest("[aria-disabled='true']")).not.toBeNull();
-    expect(screen.queryByRole("link", { name: /Topology/ })).toBeNull();
+    expect(screen.getByRole("link", { name: "Topology" })).toHaveAttribute("href", "/topology");
+    expect(screen.getByRole("link", { name: "Security" })).toHaveAttribute("href", "/security");
+    expect(screen.getByRole("link", { name: "Findings" })).toHaveAttribute("href", "/findings");
+    expect(screen.getByRole("link", { name: "Actions" })).toHaveAttribute("href", "/actions");
+    expect(screen.getByRole("link", { name: "Cost" })).toHaveAttribute("href", "/cost");
+    expect(screen.getByRole("link", { name: "Compliance & Ops" })).toHaveAttribute(
+      "href",
+      "/compliance",
+    );
   });
 
   it("shows the tenant and the signed-in identity", () => {

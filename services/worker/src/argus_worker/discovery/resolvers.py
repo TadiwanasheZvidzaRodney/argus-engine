@@ -136,7 +136,20 @@ class RelationshipResolver:
                             )
                         )
 
-            # 7. RDS Instance -> Subnet
+            # 7. Lambda -> execution role
+            if node.type == "AWS::Lambda::Function":
+                role_arn = props.get("role_arn")
+                if role_arn and role_arn in by_arn:
+                    edges.append(
+                        GraphEdge(
+                            source_id=node.id,
+                            target_id=by_arn[role_arn].id,
+                            type="ASSUMES",
+                            tenant_id=tenant_id,
+                        )
+                    )
+
+            # 8. RDS Instance -> Subnet
             if node.type == "AWS::RDS::DBInstance":
                 subnet_id = props.get("subnet_id")
                 if subnet_id and subnet_id in by_natural_id:

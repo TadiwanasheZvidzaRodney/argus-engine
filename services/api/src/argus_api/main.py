@@ -29,15 +29,23 @@ from argus_api.db import build_engine, probe
 from argus_api.errors import install_exception_handlers
 from argus_api.middleware import IdempotencyMiddleware, SecurityHeadersMiddleware
 from argus_api.routers.accounts import router as accounts_router
+from argus_api.routers.actions import router as actions_router
+from argus_api.routers.admin import router as admin_router
 from argus_api.routers.audit import router as audit_router
+from argus_api.routers.compliance import router as compliance_router
+from argus_api.routers.cost import router as cost_router
 from argus_api.routers.demo import build_demo_router
 from argus_api.routers.events import router as events_router
+from argus_api.routers.findings import router as findings_router
+from argus_api.routers.guardrails import router as guardrails_router
 from argus_api.routers.health import build_health_router
 from argus_api.routers.me import router as me_router
 from argus_api.routers.members import router as members_router
 from argus_api.routers.meta import build_meta_router
 from argus_api.routers.resources import router as resources_router
+from argus_api.routers.security import router as security_router
 from argus_api.routers.sync import router as sync_router
+from argus_api.routers.telemetry import router as telemetry_router
 from argus_api.routers.topology import router as topology_router
 from argus_api.settings import ApiSettings
 
@@ -118,6 +126,14 @@ def create_app(
     app.include_router(events_router)
     app.include_router(resources_router)
     app.include_router(topology_router)
+    app.include_router(actions_router)
+    app.include_router(guardrails_router)
+    app.include_router(findings_router)
+    app.include_router(security_router)
+    app.include_router(telemetry_router)
+    app.include_router(cost_router)
+    app.include_router(compliance_router)
+    app.include_router(admin_router)
     if settings.docs_enabled or settings.env is not Environment.PROD:
         app.include_router(build_demo_router(settings))
 

@@ -495,6 +495,49 @@ class GraphRepository:
                 "resources": reachable,
             }
 
+    async def apply_action_metadata(
+        self, tenant_id: str, resource_ids: list[str], action_id: str
+    ) -> int:
+        """Mark resources as action-managed after a successful execution."""
+        self._assert_tenant(tenant_id)
+        if not resource_ids:
+            return 0
+        query = """
+        UNWIND $ids AS rid
+        MATCH (n:Resource {tenant_id: $tenant_id, id: rid})
+        SET n.managed_by = 'argus',
+            n.last_action_id = $action_id,
+            n.last_action_at = datetime()
+        RETURN count(n) AS updated
+        """
+        async with self.driver.session() as session:
+            result = await session.run(
+                query,
+                {
+                    "tenant_id": tenant_id,
+                    "ids": resource_ids,
+                    "action_id": action_id,
+                },
+            )
+            record = await result.single()
+            return int(record["updated"]) if record else 0
+
+    async def clear_action_metadata(self, tenant_id: str, resource_ids: list[str]) -> int:
+        """Remove action-management markers during rollback."""
+        self._assert_tenant(tenant_id)
+        if not resource_ids:
+            return 0
+        query = """
+        UNWIND $ids AS rid
+        MATCH (n:Resource {tenant_id: $tenant_id, id: rid})
+        REMOVE n.managed_by, n.last_action_id, n.last_action_at
+        RETURN count(n) AS updated
+        """
+        async with self.driver.session() as session:
+            result = await session.run(query, {"tenant_id": tenant_id, "ids": resource_ids})
+            record = await result.single()
+            return int(record["updated"]) if record else 0
+
     async def count_summary(self, tenant_id: str) -> dict[str, Any]:
         self._assert_tenant(tenant_id)
         query = """
@@ -535,3 +578,157 @@ class GraphRepository:
             )
             record = await result.single()
             return int(record["tombstoned_count"]) if record else 0
+
+    # ------------------------------------------------------------------
+    # Phase 7 — security traversals and derived edges
+    # ------------------------------------------------------------------
+
+    async def upsert_raw_nodes(self, tenant_id: str, nodes: list[dict[str, Any]]) -> int:
+        """Upsert already-serialised node payloads (used for the Internet sentinel)."""
+        self._assert_tenant(tenant_id)
+        if not nodes:
+            return 0
+        query = """
+        UNWIND $batch AS r
+        MERGE (n:Resource {tenant_id: $tenant_id, id: r.id})
+        ON CREATE SET n.created_at = datetime(r.created_at), n.version = r.version
+        ON MATCH SET n.version = r.version
+        SET n.arn = r.arn, n.type = r.type, n.name = r.name,
+            n.account_id = r.account_id, n.region = r.region, n.state = r.state,
+            n.tags = r.tags, n.source = r.source, n.updated_at = datetime(r.updated_at),
+            n.raw_ref = r.raw_ref, n.properties = r.properties, n.deleted_at = null
+        """
+        async with self.driver.session() as session:
+            await session.run(query, {"tenant_id": tenant_id, "batch": nodes})
+        return len(nodes)
+
+    async def set_security_metadata(
+        self, tenant_id: str, resource_id: str, *, exposed: bool
+    ) -> int:
+        self._assert_tenant(tenant_id)
+        query = """
+        MATCH (n:Resource {tenant_id: $tenant_id, id: $resource_id})
+        SET n.security_exposed = $exposed
+        RETURN count(n) AS updated
+        """
+        async with self.driver.session() as session:
+            result = await session.run(
+                query,
+                {"tenant_id": tenant_id, "resource_id": resource_id, "exposed": exposed},
+            )
+            record = await result.single()
+            return int(record["updated"]) if record else 0
+
+    async def replace_security_edges(self, tenant_id: str, edges: list[dict[str, Any]]) -> int:
+        """Replace derived EXPOSES/CAN_ACCESS edges in one transaction."""
+        self._assert_tenant(tenant_id)
+        clear_query = """
+        MATCH (:Resource {tenant_id: $tenant_id})-[r {tenant_id: $tenant_id}]->
+              (:Resource {tenant_id: $tenant_id})
+        WHERE type(r) IN $types
+        DELETE r
+        """
+        async with self.driver.session() as session:
+            await session.run(
+                clear_query,
+                {"tenant_id": tenant_id, "types": ["EXPOSES", "CAN_ACCESS"]},
+            )
+        if not edges:
+            return 0
+
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for edge in edges:
+            rel_type = str(edge.get("type"))
+            if rel_type not in {"EXPOSES", "CAN_ACCESS"}:
+                continue
+            grouped.setdefault(rel_type, []).append(
+                {
+                    "source_id": edge["source_id"],
+                    "target_id": edge["target_id"],
+                    "properties": edge.get("properties", {}),
+                }
+            )
+
+        total = 0
+        async with self.driver.session() as session:
+            for rel_type, batch in grouped.items():
+                query = f"""
+                UNWIND $batch AS e
+                MATCH (src:Resource {{tenant_id: $tenant_id, id: e.source_id}})
+                MATCH (dst:Resource {{tenant_id: $tenant_id, id: e.target_id}})
+                MERGE (src)-[r:{rel_type} {{tenant_id: $tenant_id}}]->(dst)
+                SET r += e.properties, r.updated_at = datetime()
+                """
+                await session.run(query, {"tenant_id": tenant_id, "batch": batch})
+                total += len(batch)
+        return total
+
+    async def load_security_subgraph(
+        self,
+        tenant_id: str,
+        *,
+        max_nodes: int = 5000,
+        max_edges: int = 20000,
+        accounts: list[str] | None = None,
+        regions: list[str] | None = None,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Load a bounded tenant subgraph including security-derived edges."""
+        self._assert_tenant(tenant_id)
+        clauses = ["n.tenant_id = $tenant_id", "n.deleted_at IS NULL"]
+        params: dict[str, Any] = {
+            "tenant_id": tenant_id,
+            "max_nodes": max(1, min(max_nodes, 10000)),
+        }
+        if accounts:
+            clauses.append("n.account_id IN $accounts")
+            params["accounts"] = accounts
+        if regions:
+            clauses.append("n.region IN $regions")
+            params["regions"] = regions
+        where = " AND ".join(clauses)
+        query = f"""
+        MATCH (n:Resource)
+        WHERE {where}
+        WITH n LIMIT $max_nodes
+        OPTIONAL MATCH (n)-[r {{tenant_id: $tenant_id}}]->
+                       (dst:Resource {{tenant_id: $tenant_id}})
+        WHERE dst.deleted_at IS NULL
+        RETURN collect(DISTINCT n) AS all_nodes, collect(DISTINCT r) AS all_rels
+        """
+        async with self.driver.session() as session:
+            result = await session.run(query, params)
+            record = await result.single()
+            if not record:
+                return {"nodes": [], "edges": []}
+
+            nodes = [_clean_node_data(node) for node in (record["all_nodes"] or [])]
+            edges: list[dict[str, Any]] = []
+            seen: set[tuple[str, str, str]] = set()
+            for rel in record["all_rels"] or []:
+                if rel is None:
+                    continue
+                source = str(rel.start_node.get("id"))
+                target = str(rel.end_node.get("id"))
+                edge_key = (source, target, str(rel.type))
+                if edge_key in seen:
+                    continue
+                if len(edges) >= max_edges:
+                    break
+                seen.add(edge_key)
+                properties: dict[str, Any] = {}
+                for key, value in dict(rel).items():
+                    if hasattr(value, "iso_format"):
+                        properties[key] = value.iso_format()
+                    elif hasattr(value, "isoformat"):
+                        properties[key] = value.isoformat()
+                    else:
+                        properties[key] = value
+                edges.append(
+                    {
+                        "source": source,
+                        "target": target,
+                        "type": str(rel.type),
+                        "properties": properties,
+                    }
+                )
+            return {"nodes": nodes, "edges": edges}
