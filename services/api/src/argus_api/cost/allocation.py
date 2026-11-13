@@ -100,7 +100,7 @@ def estimate_resource_cost(node: dict[str, Any]) -> ResourceCostEstimate:
         )
 
     if node_type == "AWS::S3::Bucket":
-        monthly = 24.00
+        monthly = 0.01
         daily = round(monthly / 30.0, 4)
         return ResourceCostEstimate(
             resource_id=res_id,
@@ -108,7 +108,7 @@ def estimate_resource_cost(node: dict[str, Any]) -> ResourceCostEstimate:
             daily_amount=daily,
             monthly_amount=monthly,
             confidence=CostConfidence.ESTIMATED,
-            method="S3 Standard storage tier prorated from monthly volume telemetry.",
+            method="S3 Standard storage tier (~$0.023/GB) for small state storage.",
         )
 
     if node_type == "AWS::Lambda::Function":

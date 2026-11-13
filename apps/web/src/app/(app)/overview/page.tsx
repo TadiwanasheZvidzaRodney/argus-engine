@@ -18,16 +18,19 @@ interface AccountItem {
 export const dynamic = "force-dynamic";
 
 async function loadData() {
-  const [meta, summary, accounts] = await Promise.all([
+  const [meta, summary, accounts, security] = await Promise.all([
     apiFetch<ServiceMeta>("/api/v1/meta", { timeoutMs: 2_000 }).catch(() => null),
     apiFetch<TopologySummary>("/api/v1/topology/summary", { timeoutMs: 2_000 }).catch(() => null),
     apiFetch<AccountItem[]>("/api/v1/aws-accounts", { timeoutMs: 2_000 }).catch(() => []),
+    apiFetch<{ open_total: number }>("/api/v1/security/summary", { timeoutMs: 2_000 }).catch(
+      () => null,
+    ),
   ]);
-  return { meta, summary, accounts };
+  return { meta, summary, accounts, security };
 }
 
 export default async function OverviewPage() {
-  const { meta, summary, accounts } = await loadData();
+  const { meta, summary, accounts, security } = await loadData();
 
   return (
     <div className="flex flex-col gap-6">
@@ -59,8 +62,10 @@ export default async function OverviewPage() {
           <p className="mt-1 text-xs text-muted-foreground">Topological edges resolved.</p>
         </Card>
         <Card title="Open findings">
-          <p className="text-2xl font-semibold tabular-nums">—</p>
-          <p className="mt-1 text-xs text-muted-foreground">Security engine lands in Phase 7.</p>
+          <p className="text-2xl font-semibold tabular-nums text-warning">
+            {security?.open_total ?? 0}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">Active security posture checks.</p>
         </Card>
       </div>
 

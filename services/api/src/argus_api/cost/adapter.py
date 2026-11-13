@@ -7,7 +7,9 @@ without live AWS credentials.
 from __future__ import annotations
 
 import hashlib
+import json
 import math
+import subprocess
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 
@@ -48,13 +50,71 @@ def _hash_seed(text: str) -> int:
     return int.from_bytes(hashlib.sha256(text.encode("utf-8")).digest()[:8], "big")
 
 
+def fetch_live_costs_from_aws(
+    account_id: str,
+    days: int = 30,
+    end_date: date | None = None,
+) -> list[DailyCostRecord] | None:
+    """Fetch live daily cost data from AWS Cost Explorer via AWS CLI when available."""
+    try:
+        end = end_date or datetime.now(tz=UTC).date()
+        start = end - timedelta(days=days)
+        cmd = [
+            "aws",
+            "ce",
+            "get-cost-and-usage",
+            "--time-period",
+            f"Start={start.isoformat()},End={end.isoformat()}",
+            "--granularity",
+            "DAILY",
+            "--metrics",
+            "UnblendedCost",
+            "--group-by",
+            "Type=DIMENSION,Key=SERVICE",
+            "--output",
+            "json",
+        ]
+        res = subprocess.run(  # noqa: S603
+            cmd, check=True, capture_output=True, text=True, timeout=10
+        )
+        data = json.loads(res.stdout)
+        records: list[DailyCostRecord] = []
+        for day in data.get("ResultsByTime", []):
+            p_date = date.fromisoformat(day["TimePeriod"]["Start"])
+            for g in day.get("Groups", []):
+                service_name = g["Keys"][0]
+                amount = max(0.0, float(g["Metrics"]["UnblendedCost"]["Amount"]))
+                records.append(
+                    DailyCostRecord(
+                        account_id=account_id,
+                        region="us-west-2",
+                        service=service_name,
+                        usage_type="Usage",
+                        tag_key=None,
+                        tag_value=None,
+                        amount=round(amount, 4),
+                        currency="USD",
+                        period_date=p_date,
+                    )
+                )
+        return records if records else None
+    except Exception:
+        return None
+
+
 def generate_daily_costs(
     account_id: str,
     region: str = "us-east-1",
     days: int = 30,
     end_date: date | None = None,
 ) -> list[DailyCostRecord]:
-    """Generate deterministic daily cost records ending on end_date."""
+    """Generate daily cost records via live Cost Explorer or synthetic fallback."""
+    # For real AWS accounts, prefer live Cost Explorer data
+    if account_id != "123456789012":
+        live_records = fetch_live_costs_from_aws(account_id, days=days, end_date=end_date)
+        if live_records is not None:
+            return live_records
+
     end = end_date or datetime.now(tz=UTC).date()
     records: list[DailyCostRecord] = []
     base_seed = _hash_seed(f"{account_id}:{region}")

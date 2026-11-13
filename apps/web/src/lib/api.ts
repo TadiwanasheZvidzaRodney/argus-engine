@@ -15,6 +15,16 @@ export class ApiError extends Error {
   }
 }
 
+const READ_ONLY_POST_PATHS = new Set([
+  "/api/v1/topology/query",
+  "/api/v1/topology/paths",
+  "/api/v1/topology/blast-radius",
+  "/api/v1/actions/parse-intent",
+  "/api/v1/security/attack-paths",
+  "/api/v1/telemetry/snapshot",
+  "/api/v1/admin/dr-drill",
+]);
+
 interface RequestOptions extends Omit<RequestInit, "body"> {
   body?: unknown;
   idempotencyKey?: string;
@@ -60,11 +70,15 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
   const requestHeaders: Record<string, string> = {
     accept: "application/json",
     "x-request-id": requestId,
+    authorization:
+      "stub:0190c3a1-0000-7000-8000-0000000000aa:0190c3a1-0000-7000-8000-000000000001:owner:demo@argus.local",
     ...(headers as Record<string, string> | undefined),
   };
   if (body !== undefined) requestHeaders["content-type"] = "application/json";
   if (idempotencyKey) requestHeaders["idempotency-key"] = idempotencyKey;
-  if (method !== "GET" && method !== "HEAD" && !idempotencyKey) {
+  const basePath = path.split("?")[0] ?? path;
+  const isReadOnlyPost = method === "POST" && READ_ONLY_POST_PATHS.has(basePath);
+  if (method !== "GET" && method !== "HEAD" && !isReadOnlyPost && !idempotencyKey) {
     throw new ApiError({
       type: "https://errors.argus.example.com/idempotency-key-required",
       title: "Idempotency-Key Required",

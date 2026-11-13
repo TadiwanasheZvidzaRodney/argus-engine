@@ -132,7 +132,7 @@ export default async function CostPage() {
   );
 
   const allocationPct =
-    summary.total > 0 ? Math.round((summary.allocated / summary.total) * 100) : 85;
+    summary.total > 0 ? Math.round((summary.allocated / summary.total) * 100) : 100;
   const openRecs = recommendations.filter((r) => r.status === "OPEN");
   const potentialSavings = openRecs.reduce((acc, curr) => acc + curr.estimated_monthly_savings, 0);
 
@@ -392,25 +392,15 @@ export default async function CostPage() {
         title="3D Macro Architecture View (Cluster Summary)"
         description="High-level rollup across cloud accounts and geographic regions."
       >
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-lg border border-border bg-surface-muted p-3">
             <span className="text-[11px] font-medium text-muted-foreground uppercase">
-              Production Account (123456789012)
+              Personal AWS Account (600262564312)
             </span>
             <p className="mt-1 text-lg font-bold text-foreground">
-              {formatCurrency(summary.total * 0.72)}
+              {formatCurrency(summary.total)}
             </p>
-            <p className="text-[11px] text-muted-foreground">22 resources · us-east-1</p>
-          </div>
-
-          <div className="rounded-lg border border-border bg-surface-muted p-3">
-            <span className="text-[11px] font-medium text-muted-foreground uppercase">
-              Staging Account (987654321098)
-            </span>
-            <p className="mt-1 text-lg font-bold text-foreground">
-              {formatCurrency(summary.total * 0.28)}
-            </p>
-            <p className="text-[11px] text-muted-foreground">14 resources · us-west-2</p>
+            <p className="text-[11px] text-muted-foreground">12 resources · us-west-2</p>
           </div>
 
           <div className="rounded-lg border border-border bg-surface-muted p-3">

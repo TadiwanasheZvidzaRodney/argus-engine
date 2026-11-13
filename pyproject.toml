@@ -52,7 +52,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = ["S105", "S106", "PT011", "T20"]
 "**/migrations/**" = ["E501"]
-"**/scripts/**" = ["T20"]
+"**/scripts/**" = ["T20", "S603", "S607"]
 
 [tool.ruff.format]
 quote-style = "double"

@@ -3,11 +3,32 @@ from __future__ import annotations
 import base64
 import secrets
 
+import pytest
+from argus_core.graph.client import build_graph_driver
+from argus_core.graph.repository import GraphRepository
+from argus_core.settings import Settings
+from argus_worker.discovery.adapters.sample_data import build_enterprise_topology
+from argus_worker.discovery.resolvers import RelationshipResolver
 from fastapi.testclient import TestClient
 
 ACCOUNT = "123456789012"
 VPC_ARN = f"arn:aws:ec2:us-east-1:{ACCOUNT}:vpc/vpc-0{ACCOUNT[:4]}1122"
 SUBNET_ARN = f"arn:aws:ec2:us-east-1:{ACCOUNT}:subnet/subnet-0{ACCOUNT[:4]}5566"
+
+
+@pytest.fixture(autouse=True)
+async def _ensure_graph_fixture() -> None:
+    settings = Settings(_env_file=None)
+    driver = build_graph_driver(settings)
+    repo = GraphRepository(driver)
+    tenant_key = "tnt_0190c3a1-0000-7000-8000-000000000001"
+    existing = await repo.get_resource_detail(tenant_key, VPC_ARN)
+    if existing is None:
+        nodes = build_enterprise_topology(tenant_id=tenant_key, account_id=ACCOUNT)
+        edges = RelationshipResolver.resolve(tenant_key, nodes)
+        await repo.upsert_nodes(tenant_key, nodes)
+        await repo.upsert_edges(tenant_key, edges)
+    await driver.close()
 
 
 def test_resource_list_and_cursor_pagination(client: TestClient) -> None:

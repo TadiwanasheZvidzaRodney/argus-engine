@@ -43,7 +43,7 @@ export function AppShell({
 
   return (
     <div className="grid min-h-dvh grid-cols-1 md:grid-cols-[240px_1fr]">
-      <aside className="flex flex-col border-b border-border bg-surface md:border-r md:border-b-0">
+      <aside className="flex flex-col border-b border-border bg-surface md:sticky md:top-0 md:h-dvh md:overflow-y-auto md:border-r md:border-b-0">
         <div className="flex items-center justify-between gap-2 px-4 py-4">
           <Link href="/overview" className="flex items-center gap-2">
             <span aria-hidden className="size-2.5 rounded-full bg-accent" />
@@ -85,7 +85,7 @@ export function AppShell({
           })}
         </nav>
 
-        <div className="border-t border-border px-4 py-3">
+        <div className="mt-auto shrink-0 border-t border-border px-4 py-3">
           <label className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
             Tenant
           </label>

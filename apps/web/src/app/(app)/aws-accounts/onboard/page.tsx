@@ -113,9 +113,14 @@ export default function OnboardWizardPage() {
             </label>
 
             {error && (
-              <p role="alert" className="text-xs text-danger">
-                {error}
-              </p>
+              <div role="alert" className="flex flex-col gap-1 text-xs text-danger">
+                <p>{error}</p>
+                {error.includes("already onboarded") && (
+                  <Link href="/aws-accounts" className="text-accent underline underline-offset-4">
+                    View in Connected AWS Accounts →
+                  </Link>
+                )}
+              </div>
             )}
 
             <Button type="submit" loading={loading} className="mt-2">

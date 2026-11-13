@@ -68,10 +68,11 @@ export default function TopologyPage() {
         const data = await apiFetch<TopologySlice>("/api/v1/topology/query", {
           method: "POST",
           body: { depth: 2, max_nodes: 500, max_edges: 1500 },
-          timeoutMs: 5_000,
+          timeoutMs: 10_000,
         });
         setSlice(data);
-      } catch {
+      } catch (err) {
+        console.error("Topology query failed:", err);
         setSlice(null);
       } finally {
         setLoading(false);
