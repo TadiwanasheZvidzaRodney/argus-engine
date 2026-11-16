@@ -33,9 +33,7 @@ test("signed-in users can navigate to security, findings, cost, and compliance",
   await page.getByRole("button", { name: /Overview & Estate/i }).click();
   await page.getByRole("link", { name: "Operations Wallboard", exact: true }).click();
   await expect(page).toHaveURL(/\/ops/);
-  await expect(
-    page.getByRole("heading", { name: "Operations Wallboard (NOC Display)" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Argus Ops — Estate Overview/i })).toBeVisible();
 
   // Expand Security & Posture section
   await page.getByRole("button", { name: /Security & Posture/i }).click();
@@ -66,4 +64,26 @@ test("signed-in users can navigate to security, findings, cost, and compliance",
   await page.getByRole("link", { name: "Topology", exact: true }).click();
   await expect(page).toHaveURL(/\/topology/);
   await expect(page.getByText("Fit View", { exact: true })).toBeVisible();
+});
+
+test("kiosk mode hides sidebar and expands wallboard to 100% width", async ({ page }) => {
+  await page.goto("/login");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page).toHaveURL(/\/overview/);
+
+  await page.goto("/ops");
+  await expect(page).toHaveURL(/\/ops/);
+
+  const aside = page.locator("aside");
+  await expect(aside).toBeVisible();
+
+  // Click TV Kiosk Mode
+  await page.getByRole("button", { name: /TV Kiosk Mode/i }).click();
+  await expect(aside).toBeHidden();
+  await expect(page.locator("html")).toHaveAttribute("data-kiosk", "true");
+
+  // Exit Kiosk Mode
+  await page.getByRole("button", { name: /Exit Kiosk/i }).click();
+  await expect(aside).toBeVisible();
+  await expect(page.locator("html")).not.toHaveAttribute("data-kiosk");
 });

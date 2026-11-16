@@ -137,11 +137,19 @@ async def res_alert(
 @router.post("/alerts/test-email", summary="Send test alert email to verify delivery")
 async def send_test_email(
     body: TestEmailRequest,
+    request: Request,
     auth: AuthContext = Depends(require_permission(Permission.MANAGE_ACCOUNTS)),
 ) -> dict[str, Any]:
-    success = send_ops_email(
+    settings = request.app.state.settings
+    success, err = send_ops_email(
         to_email=body.to_email,
         subject=body.subject,
         text_content=body.message,
     )
-    return {"success": success, "to_email": body.to_email}
+    is_mailpit = settings.smtp_host in ("127.0.0.1", "localhost") and settings.smtp_port == 1025
+    return {
+        "success": success,
+        "to_email": body.to_email,
+        "mode": "mailpit" if is_mailpit else "smtp",
+        "detail": err or ("Captured in local Mailpit" if is_mailpit else "Delivered via SMTP"),
+    }

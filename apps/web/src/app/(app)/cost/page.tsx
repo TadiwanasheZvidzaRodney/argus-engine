@@ -177,7 +177,7 @@ export default async function CostPage() {
           <p className="text-2xl font-semibold tabular-nums">
             {formatCurrency(summary.total, summary.currency)}
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p suppressHydrationWarning className="mt-1 text-xs text-muted-foreground">
             As of {new Date(summary.as_of).toLocaleDateString()} (lag: {summary.source_lag_hours}h)
           </p>
         </Card>

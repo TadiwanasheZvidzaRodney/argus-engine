@@ -32,7 +32,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
       </head>
-      <body className="min-h-dvh bg-background text-foreground">{children}</body>
+      <body suppressHydrationWarning className="min-h-dvh bg-background text-foreground">
+        {children}
+      </body>
     </html>
   );
 }

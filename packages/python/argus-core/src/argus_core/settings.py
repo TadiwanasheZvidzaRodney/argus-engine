@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     oidc_jwks_url: str | None = None
     default_tenant_id: str | None = None
     default_alert_email: str = "devops@zimworx.com"
+    smtp_host: str = "127.0.0.1"
+    smtp_port: int = 1025
+    smtp_user: str | None = None
+    smtp_password: str | None = None
+    smtp_use_tls: bool = False
+    email_from: str = "Argus Engine Alert <alerts@argus.engine>"
 
     # HTTP
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])

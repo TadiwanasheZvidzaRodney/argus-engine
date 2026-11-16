@@ -8,26 +8,79 @@ import { apiFetch } from "@/lib/api";
 import { newIdempotencyKey } from "@/lib/idempotency";
 
 export function TvModeToggle() {
-  const [fullscreen, setFullscreen] = useState(false);
+  const [kiosk, setKiosk] = useState(false);
 
+  // Sync data-kiosk attribute whenever kiosk state changes
   useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "f" || e.key === "F") {
-        setFullscreen((prev) => !prev);
+    if (kiosk) {
+      document.documentElement.setAttribute("data-kiosk", "true");
+      document.body.setAttribute("data-kiosk", "true");
+    } else {
+      document.documentElement.removeAttribute("data-kiosk");
+      document.body.removeAttribute("data-kiosk");
+    }
+  }, [kiosk]);
+
+  // Clean up attributes on unmount
+  useEffect(() => {
+    return () => {
+      document.documentElement.removeAttribute("data-kiosk");
+      document.body.removeAttribute("data-kiosk");
+      if (document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
       }
     };
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
   }, []);
+
+  // Listen to keyboard 'F' and hardware fullscreenchange events
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (
+        (e.key === "f" || e.key === "F") &&
+        !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)
+      ) {
+        setKiosk((prev) => !prev);
+      }
+    };
+
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement) {
+        setKiosk(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKey);
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => {
+      window.removeEventListener("keydown", handleKey);
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, []);
+
+  const handleToggle = () => {
+    setKiosk((prev) => {
+      const next = !prev;
+      if (next) {
+        if (document.documentElement.requestFullscreen) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        }
+      } else {
+        if (document.fullscreenElement && document.exitFullscreen) {
+          document.exitFullscreen().catch(() => {});
+        }
+      }
+      return next;
+    });
+  };
 
   return (
     <Button
       size="sm"
-      variant={fullscreen ? "primary" : "secondary"}
-      onClick={() => setFullscreen((prev) => !prev)}
-      title="Toggle TV / NOC Kiosk layout"
+      variant={kiosk ? "primary" : "secondary"}
+      onClick={handleToggle}
+      title="Toggle TV / NOC Kiosk layout (Press F)"
     >
-      {fullscreen ? "Exit Kiosk (F)" : "📺 TV Kiosk Mode (F)"}
+      {kiosk ? "Exit Kiosk (F)" : "📺 TV Kiosk Mode (F)"}
     </Button>
   );
 }

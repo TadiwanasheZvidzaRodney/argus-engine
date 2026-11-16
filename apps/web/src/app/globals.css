@@ -50,6 +50,25 @@
   color-scheme: dark;
 }
 
+html[data-kiosk="true"] aside,
+body[data-kiosk="true"] aside,
+[data-kiosk="true"] aside {
+  display: none !important;
+}
+
+html[data-kiosk="true"] .grid.min-h-dvh,
+body[data-kiosk="true"] .grid.min-h-dvh,
+[data-kiosk="true"] .grid.min-h-dvh {
+  grid-template-columns: 1fr !important;
+}
+
+html[data-kiosk="true"] main,
+body[data-kiosk="true"] main,
+[data-kiosk="true"] main {
+  max-width: 100% !important;
+  padding: 1rem !important;
+}
+
 * {
   border-color: var(--border);
 }

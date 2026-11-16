@@ -250,7 +250,10 @@ export default async function CompliancePage() {
                         "—"
                       )}
                     </td>
-                    <td className="py-2.5 text-muted-foreground text-[11px]">
+                    <td
+                      suppressHydrationWarning
+                      className="py-2.5 text-muted-foreground text-[11px]"
+                    >
                       {ctrl.collected_at
                         ? new Date(ctrl.collected_at).toLocaleDateString()
                         : "Pending"}

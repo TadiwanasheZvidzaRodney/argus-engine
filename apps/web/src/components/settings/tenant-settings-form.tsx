@@ -58,23 +58,37 @@ export function TenantSettingsForm({ initialSettings }: { initialSettings: Tenan
     }
   }
 
+  const [testNotice, setTestNotice] = useState<string | null>(null);
+
   async function handleTestEmail() {
     setTesting(true);
     setTestSent(false);
+    setTestNotice(null);
     setError(null);
 
     try {
-      await apiFetch("/api/v1/ops/alerts/test-email", {
-        method: "POST",
-        idempotencyKey: newIdempotencyKey("test-mail"),
-        body: {
-          to_email: email,
-          subject: "[TEST ALERT] Argus Notification Destination Verification",
-          message: `Verification notification sent to ${email} from Argus Engine settings.`,
+      const res = await apiFetch<{ success: boolean; mode: string; detail: string }>(
+        "/api/v1/ops/alerts/test-email",
+        {
+          method: "POST",
+          idempotencyKey: newIdempotencyKey("test-mail"),
+          body: {
+            to_email: email,
+            subject: "[TEST ALERT] Argus Notification Destination Verification",
+            message: `Verification notification sent to ${email} from Argus Engine settings.`,
+          },
         },
-      });
-      setTestSent(true);
-      setTimeout(() => setTestSent(false), 4000);
+      );
+      if (res.success) {
+        setTestSent(true);
+        if (res.mode === "mailpit") {
+          setTestNotice("Captured in local Mailpit (view at http://localhost:8025).");
+        } else {
+          setTestNotice(`Delivered via SMTP to ${email}.`);
+        }
+      } else {
+        setError(`Email delivery failed: ${res.detail}`);
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Failed to send test email.");
     } finally {
@@ -113,6 +127,21 @@ export function TenantSettingsForm({ initialSettings }: { initialSettings: Tenan
               {testSent ? "Test Sent ✓" : "Send Test Email"}
             </Button>
           </div>
+          {testNotice && (
+            <p className="mt-1.5 flex items-center gap-1.5 text-xs text-success">
+              <span>{testNotice}</span>
+              {testNotice.includes("Mailpit") && (
+                <a
+                  href="http://localhost:8025"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium underline underline-offset-4"
+                >
+                  Open Local Mailbox ↗
+                </a>
+              )}
+            </p>
+          )}
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">

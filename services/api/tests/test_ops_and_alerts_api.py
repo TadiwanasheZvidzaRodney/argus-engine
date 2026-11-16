@@ -153,7 +153,10 @@ def test_test_email_dispatch_to_devops_group(client: TestClient, seeded_tenant: 
         headers=_headers(seeded_tenant),
     )
     assert res.status_code == 200, res.text
-    assert res.json()["to_email"] == "devops@zimworx.com"
+    data = res.json()
+    assert data["to_email"] == "devops@zimworx.com"
+    assert data["success"] is True
+    assert data["mode"] == "mailpit"
 
 
 def test_ops_alerts_tenant_isolation(client: TestClient, seeded_tenant: str) -> None:
