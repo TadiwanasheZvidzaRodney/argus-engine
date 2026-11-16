@@ -29,6 +29,8 @@ test("signed-in users can navigate to security, findings, cost, and compliance",
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page).toHaveURL(/\/overview/);
 
+  // Expand Security & Posture section
+  await page.getByRole("button", { name: /Security & Posture/i }).click();
   await page.getByRole("link", { name: "Security" }).click();
   await expect(page).toHaveURL(/\/security/);
   await expect(page.getByRole("heading", { name: "Security posture" })).toBeVisible();
@@ -37,10 +39,22 @@ test("signed-in users can navigate to security, findings, cost, and compliance",
   await expect(page).toHaveURL(/\/findings/);
   await expect(page.getByRole("heading", { name: "Security Findings" })).toBeVisible();
 
+  // Expand Cost section
+  await page.getByRole("button", { name: /Cost & FinOps/i }).click();
   await page.getByRole("link", { name: "Cost", exact: true }).click();
   await expect(page).toHaveURL(/\/cost/);
   await expect(page.getByRole("heading", { name: "Cost Intelligence & FinOps" })).toBeVisible();
 
+  // Expand Actions & GitOps section
+  await page.getByRole("button", { name: /Actions & GitOps/i }).click();
+  await page.getByRole("link", { name: "GitOps / IaC", exact: true }).click();
+  await expect(page).toHaveURL(/\/iac/);
+  await expect(
+    page.getByRole("heading", { name: "GitOps Bridge & IaC Drift Remediation" }),
+  ).toBeVisible();
+
+  // Expand Topology section
+  await page.getByRole("button", { name: /Topology & Canvas/i }).click();
   await page.getByRole("link", { name: "Topology", exact: true }).click();
   await expect(page).toHaveURL(/\/topology/);
   await expect(page.getByText("Fit View", { exact: true })).toBeVisible();

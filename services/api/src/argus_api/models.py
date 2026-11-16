@@ -1061,3 +1061,80 @@ class SystemSloStatusModel(Base):
     )
 
     __table_args__ = (Index("idx_system_slo_name", "slo_name", unique=True),)
+
+
+# ---------------------------------------------------------------------------
+# Phase 10 — GitOps Bridge, IaC Drift Detection, and Pull Request Synthesis
+# ---------------------------------------------------------------------------
+
+
+class GitRepositoryModel(Base):
+    __tablename__ = "git_repositories"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String(32), nullable=False, server_default="github")
+    repo_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    default_branch: Mapped[str] = mapped_column(String(128), nullable=False, server_default="main")
+    iac_path: Mapped[str] = mapped_column(String(256), nullable=False, server_default="terraform/")
+    auth_token_ref: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="active")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (Index("idx_git_repositories_tenant", "tenant_id", "status"),)
+
+
+class IacDriftRecordModel(Base):
+    __tablename__ = "iac_drift_records"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False, index=True)
+    resource_id: Mapped[str] = mapped_column(String(2048), nullable=False)
+    resource_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    iac_file_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    iac_block_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    iac_block_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    drift_details: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default="{}"
+    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="DRIFTED")
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_iac_drift_tenant_res", "tenant_id", "resource_id"),
+        Index("idx_iac_drift_status", "tenant_id", "status"),
+    )
+
+
+class IacPullRequestModel(Base):
+    __tablename__ = "iac_pull_requests"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False, index=True)
+    action_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+    repo_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    pr_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    pr_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    branch_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    hcl_diff: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="OPEN")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_iac_prs_tenant", "tenant_id", "status"),
+        Index("idx_iac_prs_action", "action_id"),
+    )

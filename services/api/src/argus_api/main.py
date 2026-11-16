@@ -39,6 +39,7 @@ from argus_api.routers.events import router as events_router
 from argus_api.routers.findings import router as findings_router
 from argus_api.routers.guardrails import router as guardrails_router
 from argus_api.routers.health import build_health_router
+from argus_api.routers.iac import router as iac_router
 from argus_api.routers.me import router as me_router
 from argus_api.routers.members import router as members_router
 from argus_api.routers.meta import build_meta_router
@@ -134,6 +135,7 @@ def create_app(
     app.include_router(cost_router)
     app.include_router(compliance_router)
     app.include_router(admin_router)
+    app.include_router(iac_router)
     if settings.docs_enabled or settings.env is not Environment.PROD:
         app.include_router(build_demo_router(settings))
 

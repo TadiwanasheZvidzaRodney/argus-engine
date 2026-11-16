@@ -119,6 +119,7 @@ async def sync_tenant_costs(
     sum_res = await session.execute(
         select(func.sum(CostDailyModel.amount)).where(
             CostDailyModel.tenant_id == tenant_id,
+            CostDailyModel.account_id == account_id,
             CostDailyModel.period_date >= month_start,
             CostDailyModel.tag_key.is_(None),  # base untagged records
         )
