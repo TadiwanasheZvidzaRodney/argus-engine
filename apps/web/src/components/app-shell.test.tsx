@@ -39,6 +39,10 @@ describe("AppShell", () => {
     // Clicking section reveals its sub-links
     await user.click(screen.getByRole("button", { name: /Overview & Estate/i }));
     expect(screen.getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Operations Wallboard" })).toHaveAttribute(
+      "href",
+      "/ops",
+    );
 
     await user.click(screen.getByRole("button", { name: /Topology & Canvas/i }));
     expect(screen.getByRole("link", { name: "Topology" })).toHaveAttribute("href", "/topology");
@@ -58,6 +62,10 @@ describe("AppShell", () => {
     expect(screen.getByRole("link", { name: "Compliance & Ops" })).toHaveAttribute(
       "href",
       "/compliance",
+    );
+    expect(screen.getByRole("link", { name: "Settings & Alerts" })).toHaveAttribute(
+      "href",
+      "/settings",
     );
   });
 

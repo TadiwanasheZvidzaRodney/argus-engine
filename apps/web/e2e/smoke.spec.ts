@@ -29,6 +29,14 @@ test("signed-in users can navigate to security, findings, cost, and compliance",
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page).toHaveURL(/\/overview/);
 
+  // Expand Overview & Estate section to access Operations Wallboard
+  await page.getByRole("button", { name: /Overview & Estate/i }).click();
+  await page.getByRole("link", { name: "Operations Wallboard", exact: true }).click();
+  await expect(page).toHaveURL(/\/ops/);
+  await expect(
+    page.getByRole("heading", { name: "Operations Wallboard (NOC Display)" }),
+  ).toBeVisible();
+
   // Expand Security & Posture section
   await page.getByRole("button", { name: /Security & Posture/i }).click();
   await page.getByRole("link", { name: "Security" }).click();

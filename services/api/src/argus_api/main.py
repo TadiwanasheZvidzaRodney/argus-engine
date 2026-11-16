@@ -43,10 +43,12 @@ from argus_api.routers.iac import router as iac_router
 from argus_api.routers.me import router as me_router
 from argus_api.routers.members import router as members_router
 from argus_api.routers.meta import build_meta_router
+from argus_api.routers.ops import router as ops_router
 from argus_api.routers.resources import router as resources_router
 from argus_api.routers.security import router as security_router
 from argus_api.routers.sync import router as sync_router
 from argus_api.routers.telemetry import router as telemetry_router
+from argus_api.routers.tenant_settings import router as tenant_settings_router
 from argus_api.routers.topology import router as topology_router
 from argus_api.settings import ApiSettings
 
@@ -136,6 +138,8 @@ def create_app(
     app.include_router(compliance_router)
     app.include_router(admin_router)
     app.include_router(iac_router)
+    app.include_router(ops_router)
+    app.include_router(tenant_settings_router)
     if settings.docs_enabled or settings.env is not Environment.PROD:
         app.include_router(build_demo_router(settings))
 

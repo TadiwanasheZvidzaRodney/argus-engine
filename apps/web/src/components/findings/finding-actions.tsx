@@ -7,12 +7,7 @@ import React, { useState } from "react";
 
 import { apiFetch } from "@/lib/api";
 import type { FindingDetail } from "@/lib/finding-types";
-
-function newKey(): string {
-  const cryptoApi = globalThis.crypto;
-  if (cryptoApi && "randomUUID" in cryptoApi) return `fnd-${cryptoApi.randomUUID()}`;
-  return `fnd-${Date.now().toString(36)}`;
-}
+import { newIdempotencyKey } from "@/lib/idempotency";
 
 export function FindingActions({ finding }: { finding: FindingDetail }) {
   const router = useRouter();
@@ -28,7 +23,7 @@ export function FindingActions({ finding }: { finding: FindingDetail }) {
     try {
       await apiFetch<FindingDetail>(`/api/v1/findings/${finding.id}`, {
         method: "PATCH",
-        idempotencyKey: newKey(),
+        idempotencyKey: newIdempotencyKey("fnd"),
         body: { status, comment: comment || undefined, ...extra },
       });
       setComment("");
@@ -48,7 +43,7 @@ export function FindingActions({ finding }: { finding: FindingDetail }) {
         `/api/v1/findings/${finding.id}/remediation`,
         {
           method: "POST",
-          idempotencyKey: newKey(),
+          idempotencyKey: newIdempotencyKey("fnd"),
           body: { constraints: { environment: "staging" } },
         },
       );

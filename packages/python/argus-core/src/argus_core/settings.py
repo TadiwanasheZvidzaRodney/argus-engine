@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     oidc_audience: str | None = None
     oidc_jwks_url: str | None = None
     default_tenant_id: str | None = None
+    default_alert_email: str = "devops@zimworx.com"
 
     # HTTP
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])

@@ -1138,3 +1138,76 @@ class IacPullRequestModel(Base):
         Index("idx_iac_prs_tenant", "tenant_id", "status"),
         Index("idx_iac_prs_action", "action_id"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 11 — Operations Alerts, Notifications Hub, and Escalation Engine
+# ---------------------------------------------------------------------------
+
+
+class OpsAlertModel(Base):
+    __tablename__ = "ops_alerts"
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True)
+    tenant_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False, index=True)
+    alert_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    severity: Mapped[str] = mapped_column(String(16), nullable=False, server_default="warning")
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, server_default="ecs")
+    resource_id: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, server_default="FIRING")
+    requires_action: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    repeat_interval_minutes: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="30"
+    )
+    notification_email: Mapped[str] = mapped_column(
+        String(255), nullable=False, server_default="devops@zimworx.com"
+    )
+    notification_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    last_notified_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    acknowledged_by: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_ops_alerts_tenant_status", "tenant_id", "status"),
+        Index("idx_ops_alerts_tenant_key", "tenant_id", "alert_key"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 12 — Dynamic Tenant Settings and Alert Notification Preferences
+# ---------------------------------------------------------------------------
+
+
+class TenantSettingModel(Base):
+    __tablename__ = "tenant_settings"
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    alert_email: Mapped[str] = mapped_column(
+        String(255), nullable=False, server_default="devops@zimworx.com"
+    )
+    alert_slack_webhook: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    alert_repeat_minutes: Mapped[int] = mapped_column(Integer, nullable=False, server_default="30")
+    default_region: Mapped[str] = mapped_column(
+        String(32), nullable=False, server_default="us-west-2"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )

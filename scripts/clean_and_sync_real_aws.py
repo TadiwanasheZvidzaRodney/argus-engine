@@ -296,7 +296,7 @@ def discover_real_resources() -> tuple[list[GraphNode], list[GraphEdge]]:
     # Fallback to cached real inventory if live CLI session is temporarily expired
     if not nodes:
         print(
-            "   Notice: Live AWS session expired or unavailable; using verified real inventory for 600262564312."
+            "   Notice: Live AWS session expired; using verified real inventory for 600262564312."
         )
         vpc_arn = f"arn:aws:ec2:{REGION}:{REAL_ACCOUNT_ID}:vpc/vpc-0306c718bebc373fb"
         nodes.append(

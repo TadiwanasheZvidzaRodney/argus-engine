@@ -6,12 +6,7 @@ import React, { useState } from "react";
 
 import { apiFetch } from "@/lib/api";
 import type { IacDriftRecord } from "@/lib/iac-types";
-
-function newKey(prefix: string): string {
-  const cryptoApi = globalThis.crypto;
-  if (cryptoApi && "randomUUID" in cryptoApi) return `${prefix}-${cryptoApi.randomUUID()}`;
-  return `${prefix}-${Date.now().toString(36)}`;
-}
+import { newIdempotencyKey } from "@/lib/idempotency";
 
 export function ScanDriftButton() {
   const router = useRouter();
@@ -24,7 +19,7 @@ export function ScanDriftButton() {
     try {
       await apiFetch("/api/v1/iac/drift/scan", {
         method: "POST",
-        idempotencyKey: newKey("drift-scan"),
+        idempotencyKey: newIdempotencyKey("drift-scan"),
         timeoutMs: 15_000,
       });
       router.refresh();
@@ -61,7 +56,7 @@ export function ConnectRepoCard() {
     try {
       await apiFetch("/api/v1/iac/repositories", {
         method: "POST",
-        idempotencyKey: newKey("repo-connect"),
+        idempotencyKey: newIdempotencyKey("repo-connect"),
         body: {
           provider: "github",
           repo_url: repoUrl,
@@ -157,7 +152,7 @@ export function SynthesizeDriftPrButton({ drift }: { drift: IacDriftRecord }) {
     try {
       const res = await apiFetch<{ pr_url: string }>("/api/v1/iac/prs", {
         method: "POST",
-        idempotencyKey: newKey("synth-pr"),
+        idempotencyKey: newIdempotencyKey("synth-pr"),
         body: {
           action_type: actionType,
           target_resource_id: drift.resource_id,

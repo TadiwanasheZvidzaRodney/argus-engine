@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import React, { useState } from "react";
 
 import { apiFetch } from "@/lib/api";
+import { newIdempotencyKey } from "@/lib/idempotency";
 
 interface ScanResponse {
   scan_id: string;
@@ -15,12 +16,6 @@ interface ScanResponse {
   reopened: number;
   resolved: number;
   suppressed: number;
-}
-
-function newKey(): string {
-  const cryptoApi = globalThis.crypto;
-  if (cryptoApi && "randomUUID" in cryptoApi) return `scan-${cryptoApi.randomUUID()}`;
-  return `scan-${Date.now().toString(36)}`;
 }
 
 export function ScanControls() {
@@ -35,7 +30,7 @@ export function ScanControls() {
     try {
       const response = await apiFetch<ScanResponse>("/api/v1/security/scan", {
         method: "POST",
-        idempotencyKey: newKey(),
+        idempotencyKey: newIdempotencyKey("scan"),
         body: { materialize: true },
         timeoutMs: 30_000,
       });

@@ -94,6 +94,19 @@ async function loadBudgets(): Promise<CostBudget[]> {
   }
 }
 
+async function loadConnectedAccounts(): Promise<
+  Array<{ account_id: string; alias: string | null }>
+> {
+  try {
+    return await apiFetch<Array<{ account_id: string; alias: string | null }>>(
+      "/api/v1/aws-accounts",
+      { timeoutMs: 3_000 },
+    );
+  } catch {
+    return [];
+  }
+}
+
 function TrendChart({ points }: { points: CostTrend["points"] }) {
   if (points.length === 0) return null;
   const max = Math.max(1, ...points.map((p) => p.amount));
@@ -119,8 +132,8 @@ function TrendChart({ points }: { points: CostTrend["points"] }) {
 }
 
 export default async function CostPage() {
-  const [summary, trend, services, tags, topSpenders, recommendations, budgets] = await Promise.all(
-    [
+  const [summary, trend, services, tags, topSpenders, recommendations, budgets, accounts] =
+    await Promise.all([
       loadCostSummary(),
       loadCostTrend(),
       loadServiceBreakdown(),
@@ -128,8 +141,8 @@ export default async function CostPage() {
       loadTopSpenders(),
       loadRecommendations(),
       loadBudgets(),
-    ],
-  );
+      loadConnectedAccounts(),
+    ]);
 
   const allocationPct =
     summary.total > 0 ? Math.round((summary.allocated / summary.total) * 100) : 100;
@@ -393,15 +406,34 @@ export default async function CostPage() {
         description="High-level rollup across cloud accounts and geographic regions."
       >
         <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-lg border border-border bg-surface-muted p-3">
-            <span className="text-[11px] font-medium text-muted-foreground uppercase">
-              Personal AWS Account (600262564312)
-            </span>
-            <p className="mt-1 text-lg font-bold text-foreground">
-              {formatCurrency(summary.total)}
-            </p>
-            <p className="text-[11px] text-muted-foreground">12 resources · us-west-2</p>
-          </div>
+          {accounts.length === 0 ? (
+            <div className="rounded-lg border border-border bg-surface-muted p-3">
+              <span className="text-[11px] font-medium text-muted-foreground uppercase">
+                Active Estate Rollup
+              </span>
+              <p className="mt-1 text-lg font-bold text-foreground">
+                {formatCurrency(summary.total)}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                All connected cloud infrastructure
+              </p>
+            </div>
+          ) : (
+            accounts.map((acc) => (
+              <div
+                key={acc.account_id}
+                className="rounded-lg border border-border bg-surface-muted p-3"
+              >
+                <span className="text-[11px] font-medium text-muted-foreground uppercase">
+                  {acc.alias || "AWS Account"} ({acc.account_id})
+                </span>
+                <p className="mt-1 text-lg font-bold text-foreground">
+                  {formatCurrency(summary.total)}
+                </p>
+                <p className="text-[11px] text-muted-foreground">Live cloud resources</p>
+              </div>
+            ))
+          )}
 
           <div className="rounded-lg border border-border bg-surface-muted p-3">
             <span className="text-[11px] font-medium text-muted-foreground uppercase">

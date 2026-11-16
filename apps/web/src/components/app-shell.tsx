@@ -26,6 +26,7 @@ const NAV_SECTIONS: NavSection[] = [
     icon: "📊",
     items: [
       { href: "/overview", label: "Overview" },
+      { href: "/ops", label: "Operations Wallboard" },
       { href: "/resources", label: "Resources" },
       { href: "/aws-accounts", label: "AWS Accounts" },
     ],
@@ -74,6 +75,7 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/compliance", label: "Compliance & Ops" },
       { href: "/audit", label: "Audit Log" },
       { href: "/events", label: "Event Stream" },
+      { href: "/settings", label: "Settings & Alerts" },
       { href: "/settings/members", label: "Team & Access" },
     ],
   },

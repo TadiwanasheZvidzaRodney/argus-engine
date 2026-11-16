@@ -6,12 +6,7 @@ import React, { useState } from "react";
 
 import { apiFetch } from "@/lib/api";
 import type { DegradedModeState, DisasterRecoveryReport } from "@/lib/compliance-types";
-
-function newKey(prefix: string): string {
-  const cryptoApi = globalThis.crypto;
-  if (cryptoApi && "randomUUID" in cryptoApi) return `${prefix}-${cryptoApi.randomUUID()}`;
-  return `${prefix}-${Date.now().toString(36)}`;
-}
+import { newIdempotencyKey } from "@/lib/idempotency";
 
 export function CollectEvidenceButton() {
   const router = useRouter();
@@ -24,7 +19,7 @@ export function CollectEvidenceButton() {
     try {
       await apiFetch("/api/v1/compliance/collect", {
         method: "POST",
-        idempotencyKey: newKey("cmp-collect"),
+        idempotencyKey: newIdempotencyKey("cmp-collect"),
         timeoutMs: 30_000,
       });
       router.refresh();
@@ -96,7 +91,7 @@ export function DegradedModeControls({ initialMode }: { initialMode: DegradedMod
     try {
       const updated = await apiFetch<DegradedModeState>("/api/v1/admin/degraded", {
         method: "POST",
-        idempotencyKey: newKey("deg-toggle"),
+        idempotencyKey: newIdempotencyKey("deg-toggle"),
         body: nextState,
       });
       setMode(updated);
@@ -161,7 +156,7 @@ export function RunDrDrillButton() {
     try {
       const res = await apiFetch<DisasterRecoveryReport>("/api/v1/admin/dr-drill", {
         method: "POST",
-        idempotencyKey: newKey("dr-drill"),
+        idempotencyKey: newIdempotencyKey("dr-drill"),
         timeoutMs: 15_000,
       });
       setReport(res);

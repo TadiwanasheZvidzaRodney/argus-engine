@@ -7,12 +7,7 @@ import React, { useState } from "react";
 
 import { apiFetch } from "@/lib/api";
 import type { CostRecommendation } from "@/lib/cost-types";
-
-function newKey(prefix: string): string {
-  const cryptoApi = globalThis.crypto;
-  if (cryptoApi && "randomUUID" in cryptoApi) return `${prefix}-${cryptoApi.randomUUID()}`;
-  return `${prefix}-${Date.now().toString(36)}`;
-}
+import { newIdempotencyKey } from "@/lib/idempotency";
 
 export function CostSyncButton() {
   const router = useRouter();
@@ -25,7 +20,7 @@ export function CostSyncButton() {
     try {
       await apiFetch("/api/v1/cost/sync", {
         method: "POST",
-        idempotencyKey: newKey("cost-sync"),
+        idempotencyKey: newIdempotencyKey("cost-sync"),
         body: { days: 30 },
         timeoutMs: 30_000,
       });
@@ -65,7 +60,7 @@ export function RecommendationRemediateButton({
         `/api/v1/cost/recommendations/${recommendation.id}/remediate`,
         {
           method: "POST",
-          idempotencyKey: newKey("rec-rem"),
+          idempotencyKey: newIdempotencyKey("rec-rem"),
           body: { constraints: { environment: "staging" } },
         },
       );
@@ -84,7 +79,7 @@ export function RecommendationRemediateButton({
     try {
       await apiFetch(`/api/v1/cost/recommendations/${recommendation.id}`, {
         method: "PATCH",
-        idempotencyKey: newKey("rec-ack"),
+        idempotencyKey: newIdempotencyKey("rec-ack"),
         body: { status: "ACKNOWLEDGED" },
       });
       router.refresh();
@@ -139,7 +134,7 @@ export function CreateBudgetCard() {
     try {
       await apiFetch("/api/v1/cost/budgets", {
         method: "POST",
-        idempotencyKey: newKey("bgt-create"),
+        idempotencyKey: newIdempotencyKey("bgt-create"),
         body: {
           name,
           scope_type: "tenant",
