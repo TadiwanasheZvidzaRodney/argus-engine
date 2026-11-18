@@ -83,4 +83,15 @@ async def test_postgres_row_level_security_isolation() -> None:
         assert len(accounts) == 1
         assert accounts[0].account_id == "111111111111"
 
+    # Cleanup test tenants
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("DELETE FROM tenants WHERE id IN (:ta, :tb)"),
+            {"ta": tenant_a, "tb": tenant_b},
+        )
+        await conn.execute(
+            text("DELETE FROM users WHERE id IN (:ua, :ub)"),
+            {"ua": user_a, "ub": user_b},
+        )
+
     await engine.dispose()

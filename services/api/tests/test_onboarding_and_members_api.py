@@ -2,7 +2,37 @@ from __future__ import annotations
 
 import secrets
 
+import pytest
+from argus_core.events import new_uuid7
+from argus_core.settings import Settings
 from fastapi.testclient import TestClient
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+
+DEMO_USER = "0190c3a1-0000-7000-8000-0000000000aa"
+
+
+@pytest.fixture
+async def isolated_tenant() -> str:
+    settings = Settings(_env_file=None)
+    engine = create_async_engine(settings.database_url)
+    tenant_id = new_uuid7()
+    token = secrets.token_hex(6)
+    async with engine.begin() as conn:
+        await conn.execute(
+            text("INSERT INTO tenants (id, name, slug) VALUES (:id, :name, :slug);"),
+            {
+                "id": tenant_id,
+                "name": f"IsolatedTestTenant-{token}",
+                "slug": f"iso-{token}",
+            },
+        )
+    try:
+        yield str(tenant_id)
+    finally:
+        async with engine.begin() as conn:
+            await conn.execute(text("DELETE FROM tenants WHERE id = :id"), {"id": tenant_id})
+        await engine.dispose()
 
 
 def test_me_endpoint_returns_identity(client: TestClient) -> None:
@@ -15,7 +45,10 @@ def test_me_endpoint_returns_identity(client: TestClient) -> None:
     assert "read:topology" in data["permissions"]
 
 
-def test_account_onboarding_flow(client: TestClient) -> None:
+def test_account_onboarding_flow(client: TestClient, isolated_tenant: str) -> None:
+    test_headers = {
+        "Authorization": f"stub:{DEMO_USER}:{isolated_tenant}:owner:tester@argus.local",
+    }
     # Use a random 12-digit numeric account id for test repeatability
     unique_acc = f"99{secrets.randbelow(10**10):010d}"
 
@@ -27,7 +60,7 @@ def test_account_onboarding_flow(client: TestClient) -> None:
     response = client.post(
         "/api/v1/aws-accounts/onboarding",
         json=body,
-        headers={"Idempotency-Key": f"onboard-{unique_acc}-01"},
+        headers={"Idempotency-Key": f"onboard-{unique_acc}-01", **test_headers},
     )
     assert response.status_code == 200
     data = response.json()
@@ -39,14 +72,14 @@ def test_account_onboarding_flow(client: TestClient) -> None:
     dup_res = client.post(
         "/api/v1/aws-accounts/onboarding",
         json=body,
-        headers={"Idempotency-Key": f"onboard-{unique_acc}-02"},
+        headers={"Idempotency-Key": f"onboard-{unique_acc}-02", **test_headers},
     )
     assert dup_res.status_code == 409
 
     # 3. Validate account connection
     val_res = client.post(
         f"/api/v1/aws-accounts/{unique_acc}/validate",
-        headers={"Idempotency-Key": f"validate-{unique_acc}-01"},
+        headers={"Idempotency-Key": f"validate-{unique_acc}-01", **test_headers},
     )
     assert val_res.status_code == 200
     val_data = val_res.json()
@@ -54,7 +87,7 @@ def test_account_onboarding_flow(client: TestClient) -> None:
     assert "us-east-1" in val_data["enabled_regions"]
 
     # 4. List accounts shows the newly validated account
-    list_res = client.get("/api/v1/aws-accounts")
+    list_res = client.get("/api/v1/aws-accounts", headers=test_headers)
     assert list_res.status_code == 200
     accounts = list_res.json()
     assert any(acc["account_id"] == unique_acc and acc["status"] == "active" for acc in accounts)

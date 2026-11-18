@@ -34,8 +34,12 @@ async def sample_tenant() -> str:
                 "slug": f"slug-{token}",
             },
         )
-    await engine.dispose()
-    return str(tenant_id)
+    try:
+        yield str(tenant_id)
+    finally:
+        async with engine.begin() as conn:
+            await conn.execute(text("DELETE FROM tenants WHERE id = :id"), {"id": tenant_id})
+        await engine.dispose()
 
 
 def test_get_and_update_tenant_settings(client: TestClient, sample_tenant: str) -> None:
