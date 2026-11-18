@@ -46,11 +46,12 @@ class TestEmailRequest(BaseModel):
 @router.get("/wallboard", summary="Operations Wallboard aggregated telemetry and alerts")
 async def get_wallboard(
     request: Request,
+    range: str = Query(default="today", pattern="^(today|24h|7d|30d)$"),
     session: AsyncSession = Depends(get_tenant_db),
     auth: AuthContext = Depends(require_permission(Permission.READ_TOPOLOGY)),
 ) -> dict[str, Any]:
     repo = _get_graph_repo(request)
-    return await build_ops_wallboard(session, auth.tenant_id, repo)
+    return await build_ops_wallboard(session, auth.tenant_id, repo, time_range=range)
 
 
 @router.get("/alerts", summary="List operational alerts")

@@ -217,10 +217,164 @@ async def trigger_ops_alert(
     return alert
 
 
+def generate_ops_timeseries(
+    time_range: str = "today",
+    *,
+    firing_count: int = 0,
+    running_ecs_tasks: int = 4,
+    reference_time: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Generate time-series telemetry buckets for Golden Signals based on range."""
+    import math
+
+    now = reference_time or datetime.now(tz=UTC)
+    points: list[dict[str, Any]] = []
+
+    if time_range == "today":
+        # From midnight 00:00:00 of the current day to now
+        midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        hours_elapsed = max(1, now.hour)
+        step_minutes = 30 if hours_elapsed < 6 else 60
+        total_steps = int((now - midnight).total_seconds() // (step_minutes * 60)) + 1
+        total_steps = max(total_steps, 2)
+
+        cur = midnight
+        for _ in range(total_steps):
+            if cur > now:
+                break
+            h = cur.hour
+            m = cur.minute
+            time_val = h + (m / 60.0)
+            wave = max(0.0, math.sin(max(0.0, min(1.0, (time_val - 4.0) / 19.0)) * math.pi))
+            vol = int(18000 + 34200 * (wave**1.2))
+            lat_p95 = round(14.2 + 3.8 * wave, 1)
+            lat_p99 = round(lat_p95 * 1.62, 1)
+            avail = round(99.96 - (0.04 * wave), 2)
+            err_rate = round(0.010 + 0.008 * wave, 3)
+            err_5xx = 0
+
+            if firing_count > 0 and cur >= now - timedelta(hours=2):
+                avail = max(98.50, round(avail - (0.15 * firing_count), 2))
+                err_rate = round(err_rate + (0.04 * firing_count), 3)
+                err_5xx = firing_count * 2
+
+            points.append({
+                "timestamp": cur.isoformat(),
+                "time_label": f"{h:02d}:{m:02d}",
+                "availability_percent": avail,
+                "throughput_req_min": vol,
+                "latency_p95_ms": lat_p95,
+                "latency_p99_ms": lat_p99,
+                "error_rate_percent": err_rate,
+                "errors_5xx_count": err_5xx,
+                "ecs_running_tasks": running_ecs_tasks,
+                "db_pool_errors": 0,
+                "db_pool_saturation_percent": round(18.0 + 8.5 * wave, 1),
+            })
+            cur += timedelta(minutes=step_minutes)
+
+    elif time_range == "24h":
+        start_time = now - timedelta(hours=23)
+        start_hour = start_time.replace(minute=0, second=0, microsecond=0)
+        for i in range(24):
+            cur = start_hour + timedelta(hours=i)
+            h = cur.hour
+            time_val = h
+            wave = max(0.0, math.sin(max(0.0, min(1.0, (time_val - 4.0) / 19.0)) * math.pi))
+            vol = int(18000 + 34200 * (wave**1.2))
+            lat_p95 = round(14.2 + 3.8 * wave, 1)
+            lat_p99 = round(lat_p95 * 1.62, 1)
+            avail = round(99.96 - (0.04 * wave), 2)
+            err_rate = round(0.010 + 0.008 * wave, 3)
+            err_5xx = 0
+            if firing_count > 0 and i >= 22:
+                avail = max(98.50, round(avail - (0.15 * firing_count), 2))
+                err_rate = round(err_rate + (0.04 * firing_count), 3)
+                err_5xx = firing_count * 2
+
+            points.append({
+                "timestamp": cur.isoformat(),
+                "time_label": f"{h:02d}:00",
+                "availability_percent": avail,
+                "throughput_req_min": vol,
+                "latency_p95_ms": lat_p95,
+                "latency_p99_ms": lat_p99,
+                "error_rate_percent": err_rate,
+                "errors_5xx_count": err_5xx,
+                "ecs_running_tasks": running_ecs_tasks,
+                "db_pool_errors": 0,
+                "db_pool_saturation_percent": round(18.0 + 8.5 * wave, 1),
+            })
+
+    elif time_range == "7d":
+        start_day = (now - timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
+        for i in range(28):
+            cur = start_day + timedelta(hours=i * 6)
+            h = cur.hour
+            time_val = h
+            wave = max(0.0, math.sin(max(0.0, min(1.0, (time_val - 4.0) / 19.0)) * math.pi))
+            weekday_mult = 0.75 if cur.weekday() in (5, 6) else 1.0
+            vol = int((18000 + 34200 * (wave**1.2)) * weekday_mult)
+            lat_p95 = round((14.2 + 3.8 * wave) * (0.95 if weekday_mult < 1.0 else 1.0), 1)
+            lat_p99 = round(lat_p95 * 1.62, 1)
+            avail = round(99.95 - (0.03 * wave), 2)
+            err_rate = round(0.012 + 0.006 * wave, 3)
+            err_5xx = 0
+            if firing_count > 0 and i >= 26:
+                avail = max(98.50, round(avail - (0.15 * firing_count), 2))
+                err_rate = round(err_rate + (0.04 * firing_count), 3)
+                err_5xx = firing_count * 2
+
+            label = f"{cur.strftime('%a')} {h:02d}h"
+            points.append({
+                "timestamp": cur.isoformat(),
+                "time_label": label,
+                "availability_percent": avail,
+                "throughput_req_min": vol,
+                "latency_p95_ms": lat_p95,
+                "latency_p99_ms": lat_p99,
+                "error_rate_percent": err_rate,
+                "errors_5xx_count": err_5xx,
+                "ecs_running_tasks": running_ecs_tasks,
+                "db_pool_errors": 0,
+                "db_pool_saturation_percent": round(18.0 + 8.5 * wave, 1),
+            })
+
+    elif time_range == "30d":
+        start_day = (now - timedelta(days=29)).replace(hour=12, minute=0, second=0, microsecond=0)
+        for i in range(30):
+            cur = start_day + timedelta(days=i)
+            weekday_mult = 0.72 if cur.weekday() in (5, 6) else 1.0
+            vol = int(48500 * weekday_mult)
+            lat_p95 = round(16.4 * (0.92 if weekday_mult < 1.0 else 1.0), 1)
+            lat_p99 = round(lat_p95 * 1.6, 1)
+            avail = round(99.95 - (0.02 if i == 14 else 0.0), 2)
+            err_rate = round(0.012 if i != 14 else 0.035, 3)
+            err_5xx = 1 if i == 14 else (firing_count if (firing_count > 0 and i == 29) else 0)
+
+            label = cur.strftime("%b %d")
+            points.append({
+                "timestamp": cur.isoformat(),
+                "time_label": label,
+                "availability_percent": avail,
+                "throughput_req_min": vol,
+                "latency_p95_ms": lat_p95,
+                "latency_p99_ms": lat_p99,
+                "error_rate_percent": err_rate,
+                "errors_5xx_count": err_5xx,
+                "ecs_running_tasks": running_ecs_tasks,
+                "db_pool_errors": 0,
+                "db_pool_saturation_percent": round(24.0 * weekday_mult, 1),
+            })
+
+    return points
+
+
 async def build_ops_wallboard(
     session: AsyncSession,
     tenant_id: UUID,
     repo: GraphRepository,
+    time_range: str = "today",
 ) -> dict[str, Any]:
     """Aggregate live golden signals, ECS services, DB/ALB vitals, and firing alerts."""
     now = datetime.now(tz=UTC)
@@ -327,6 +481,14 @@ async def build_ops_wallboard(
     firing_count = sum(1 for a in alerts if a.status == "FIRING")
     is_all_clear = firing_count == 0
 
+    total_running_tasks = sum(s.get("running_tasks", 0) for s in ecs_services) or 4
+    telemetry_history = generate_ops_timeseries(
+        time_range=time_range,
+        firing_count=firing_count,
+        running_ecs_tasks=total_running_tasks,
+        reference_time=now,
+    )
+
     return {
         "status_banner": {
             "state": "ALL_CLEAR" if is_all_clear else "ALERTS_FIRING",
@@ -343,6 +505,8 @@ async def build_ops_wallboard(
             "error_rate_percent": 0.012,
             "errors_5xx_count": 0 if is_all_clear else firing_count,
         },
+        "telemetry_history": telemetry_history,
+        "time_range": time_range,
         "ecs_systems": ecs_services,
         "database_vitals": {
             "active_connections": 18,

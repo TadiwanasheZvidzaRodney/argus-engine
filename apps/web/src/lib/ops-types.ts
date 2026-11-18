@@ -56,9 +56,27 @@ export interface OpsAlertItem {
   last_notified_at: string;
 }
 
+export type TimeRangeOption = "today" | "24h" | "7d" | "30d";
+
+export interface TelemetryPoint {
+  timestamp: string;
+  time_label: string;
+  availability_percent: number;
+  throughput_req_min: number;
+  latency_p95_ms: number;
+  latency_p99_ms: number;
+  error_rate_percent: number;
+  errors_5xx_count: number;
+  ecs_running_tasks: number;
+  db_pool_errors: number;
+  db_pool_saturation_percent: number;
+}
+
 export interface OpsWallboardData {
   status_banner: StatusBanner;
   golden_signals: GoldenSignals;
+  telemetry_history: TelemetryPoint[];
+  time_range: TimeRangeOption;
   ecs_systems: EcsSystemItem[];
   database_vitals: DatabaseVitals;
   alb_vitals: AlbVitals;

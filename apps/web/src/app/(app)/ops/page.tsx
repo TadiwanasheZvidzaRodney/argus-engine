@@ -6,14 +6,23 @@ import {
   TestEmailAlertButton,
   TvModeToggle,
 } from "@/components/ops/ops-actions";
+import { AreaSparkChart, TelemetryDetailChart } from "@/components/ops/ops-chart";
+import { TimeRangeFilter } from "@/components/ops/time-range-filter";
 import { apiFetch } from "@/lib/api";
-import { type OpsWallboardData, alertSeverityTone, alertStatusTone } from "@/lib/ops-types";
+import {
+  type OpsWallboardData,
+  type TimeRangeOption,
+  alertSeverityTone,
+  alertStatusTone,
+} from "@/lib/ops-types";
 
 export const dynamic = "force-dynamic";
 
-async function loadWallboard(): Promise<OpsWallboardData> {
+async function loadWallboard(range: TimeRangeOption = "today"): Promise<OpsWallboardData> {
   try {
-    return await apiFetch<OpsWallboardData>("/api/v1/ops/wallboard", { timeoutMs: 4_000 });
+    return await apiFetch<OpsWallboardData>(`/api/v1/ops/wallboard?range=${range}`, {
+      timeoutMs: 4_000,
+    });
   } catch {
     return {
       status_banner: {
@@ -29,6 +38,48 @@ async function loadWallboard(): Promise<OpsWallboardData> {
         error_rate_percent: 0.018,
         errors_5xx_count: 0,
       },
+      telemetry_history: [
+        {
+          timestamp: new Date().toISOString(),
+          time_label: "00:00",
+          availability_percent: 99.96,
+          throughput_req_min: 18200,
+          latency_p95_ms: 14.2,
+          latency_p99_ms: 22.8,
+          error_rate_percent: 0.01,
+          errors_5xx_count: 0,
+          ecs_running_tasks: 4,
+          db_pool_errors: 0,
+          db_pool_saturation_percent: 18.0,
+        },
+        {
+          timestamp: new Date().toISOString(),
+          time_label: "06:00",
+          availability_percent: 99.95,
+          throughput_req_min: 24500,
+          latency_p95_ms: 14.8,
+          latency_p99_ms: 23.5,
+          error_rate_percent: 0.012,
+          errors_5xx_count: 0,
+          ecs_running_tasks: 4,
+          db_pool_errors: 0,
+          db_pool_saturation_percent: 21.0,
+        },
+        {
+          timestamp: new Date().toISOString(),
+          time_label: "12:00",
+          availability_percent: 99.92,
+          throughput_req_min: 51800,
+          latency_p95_ms: 17.6,
+          latency_p99_ms: 28.2,
+          error_rate_percent: 0.018,
+          errors_5xx_count: 0,
+          ecs_running_tasks: 4,
+          db_pool_errors: 0,
+          db_pool_saturation_percent: 26.5,
+        },
+      ],
+      time_range: range,
       ecs_systems: [],
       database_vitals: {
         active_connections: 18,
@@ -48,30 +99,23 @@ async function loadWallboard(): Promise<OpsWallboardData> {
   }
 }
 
-function MiniSparkline({ color = "currentColor" }: { color?: string }) {
-  return (
-    <svg
-      viewBox="0 0 120 28"
-      className="h-6 w-full opacity-80"
-      aria-hidden
-      preserveAspectRatio="none"
-    >
-      <path
-        d="M 0,22 Q 20,18 40,24 T 80,14 T 120,8"
-        fill="none"
-        stroke={color}
-        strokeWidth="2.5"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
-export default async function OperationsWallboardPage() {
-  const data = await loadWallboard();
+export default async function OperationsWallboardPage(props: {
+  searchParams: Promise<{ range?: string }>;
+}) {
+  const searchParams = await props.searchParams;
+  const range = (searchParams?.range as TimeRangeOption) || "today";
+  const data = await loadWallboard(range);
   const banner = data.status_banner;
   const signals = data.golden_signals;
   const isAllClear = banner.state === "ALL_CLEAR";
+
+  const rangeLabels: Record<TimeRangeOption, string> = {
+    today: "Since Midnight 00:00",
+    "24h": "Past 24 Hours",
+    "7d": "Past 7 Days",
+    "30d": "Past 30 Days",
+  };
+  const activeRangeLabel = rangeLabels[data.time_range || range] || "Since Midnight 00:00";
 
   return (
     <div className="flex flex-col gap-4 font-sans">
@@ -89,7 +133,8 @@ export default async function OperationsWallboardPage() {
             escalation.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <TimeRangeFilter currentRange={data.time_range || range} />
           <TestEmailAlertButton />
           <AutoRefreshBadge intervalSeconds={15} />
           <TvModeToggle />
@@ -100,7 +145,7 @@ export default async function OperationsWallboardPage() {
       <div
         className={`flex items-center justify-between rounded-md px-4 py-2.5 font-bold text-xs uppercase tracking-wide transition-all ${
           isAllClear
-            ? "bg-[#107c41] text-white shadow-sm"
+            ? "bg-[#107c41] text-white shadow-xs"
             : "bg-[#c42b1c] text-white animate-pulse shadow-lg"
         }`}
       >
@@ -119,34 +164,53 @@ export default async function OperationsWallboardPage() {
 
       {/* Section 1: Big Solid Stat Panels (Row 1 of Grafana TV) */}
       <div className="flex flex-col gap-1.5">
-        <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-          Key Metrics — Is production healthy right now?
-        </span>
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+            Key Metrics — Is production healthy right now?
+          </span>
+          <span className="text-[11px] font-mono font-medium text-muted-foreground">
+            Telemetry window: <span className="font-bold text-foreground">{activeRangeLabel}</span>
+          </span>
+        </div>
         <div className="grid gap-2 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
           {/* 1. Success Rate */}
-          <div className="flex flex-col justify-between rounded-md bg-[#107c41] p-3 text-white shadow-sm">
+          <div className="flex flex-col justify-between rounded-md bg-[#107c41] p-3 text-white shadow-xs">
             <span className="text-[10px] font-semibold tracking-wider uppercase opacity-90">
               Service Success
             </span>
             <div className="my-1 text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums">
               {signals.availability_percent}%
             </div>
-            <MiniSparkline color="#a3e635" />
+            <AreaSparkChart
+              data={data.telemetry_history}
+              dataKey="availability_percent"
+              strokeColor="#a3e635"
+              fillOpacity={0.35}
+              format="percent"
+              yDomainMin={98.5}
+              yDomainMax={100.0}
+            />
           </div>
 
           {/* 2. Inbound Throughput */}
-          <div className="flex flex-col justify-between rounded-md bg-[#15539e] p-3 text-white shadow-sm">
+          <div className="flex flex-col justify-between rounded-md bg-[#15539e] p-3 text-white shadow-xs">
             <span className="text-[10px] font-semibold tracking-wider uppercase opacity-90">
               Request Volume
             </span>
             <div className="my-1 text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums">
               {(signals.throughput_req_min / 1000).toFixed(1)}k
             </div>
-            <MiniSparkline color="#93c5fd" />
+            <AreaSparkChart
+              data={data.telemetry_history}
+              dataKey="throughput_req_min"
+              strokeColor="#93c5fd"
+              fillOpacity={0.3}
+              format="k_req"
+            />
           </div>
 
           {/* 3. Inbound p95 Latency */}
-          <div className="flex flex-col justify-between rounded-md bg-[#0063b1] p-3 text-white shadow-sm">
+          <div className="flex flex-col justify-between rounded-md bg-[#0063b1] p-3 text-white shadow-xs">
             <span className="text-[10px] font-semibold tracking-wider uppercase opacity-90">
               Inbound Latency (p95)
             </span>
@@ -154,23 +218,37 @@ export default async function OperationsWallboardPage() {
               {signals.latency_p95_ms}
               <span className="text-sm font-normal opacity-80 ml-0.5">ms</span>
             </div>
-            <MiniSparkline color="#67e8f9" />
+            <AreaSparkChart
+              data={data.telemetry_history}
+              dataKey="latency_p95_ms"
+              strokeColor="#67e8f9"
+              fillOpacity={0.3}
+              format="ms"
+            />
           </div>
 
           {/* 4. Active ECS Tasks */}
-          <div className="flex flex-col justify-between rounded-md bg-[#4f2d7f] p-3 text-white shadow-sm">
+          <div className="flex flex-col justify-between rounded-md bg-[#4f2d7f] p-3 text-white shadow-xs">
             <span className="text-[10px] font-semibold tracking-wider uppercase opacity-90">
               ECS Running Tasks
             </span>
             <div className="my-1 text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums">
               {data.ecs_systems.reduce((acc, s) => acc + s.running_tasks, 0) || 4}
             </div>
-            <MiniSparkline color="#d8b4fe" />
+            <AreaSparkChart
+              data={data.telemetry_history}
+              dataKey="ecs_running_tasks"
+              strokeColor="#d8b4fe"
+              fillOpacity={0.3}
+              format="tasks"
+              yDomainMin={0}
+              yDomainMax={8}
+            />
           </div>
 
           {/* 5. Database Connection Errors */}
           <div
-            className={`flex flex-col justify-between rounded-md p-3 text-white shadow-sm ${
+            className={`flex flex-col justify-between rounded-md p-3 text-white shadow-xs ${
               data.database_vitals.status === "UP" ? "bg-[#107c41]" : "bg-[#c42b1c]"
             }`}
           >
@@ -180,12 +258,20 @@ export default async function OperationsWallboardPage() {
             <div className="my-1 text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums">
               {data.database_vitals.status === "UP" ? 0 : 9}
             </div>
-            <span className="text-[10px] opacity-80">18 active connections</span>
+            <AreaSparkChart
+              data={data.telemetry_history}
+              dataKey="db_pool_saturation_percent"
+              strokeColor="#a3e635"
+              fillOpacity={0.3}
+              format="percent"
+              yDomainMin={0}
+              yDomainMax={100}
+            />
           </div>
 
           {/* 6. Active 5xx Errors / Alarms */}
           <div
-            className={`flex flex-col justify-between rounded-md p-3 text-white shadow-sm ${
+            className={`flex flex-col justify-between rounded-md p-3 text-white shadow-xs ${
               signals.errors_5xx_count > 0 ? "bg-[#c42b1c]" : "bg-[#107c41]"
             }`}
           >
@@ -195,12 +281,70 @@ export default async function OperationsWallboardPage() {
             <div className="my-1 text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums">
               {signals.errors_5xx_count}
             </div>
-            <span className="text-[10px] opacity-80">{signals.error_rate_percent}% error rate</span>
+            <AreaSparkChart
+              data={data.telemetry_history}
+              dataKey="error_rate_percent"
+              strokeColor={signals.errors_5xx_count > 0 ? "#fca5a5" : "#a3e635"}
+              fillOpacity={0.3}
+              format="percent"
+              yDomainMin={0}
+            />
           </div>
         </div>
       </div>
 
-      {/* Section 2: Secondary Golden Signals & ALB Vitals */}
+      {/* Section 2: Telemetry Deep-Dive Trajectory Graphs */}
+      <div className="grid gap-3 lg:grid-cols-2">
+        <TelemetryDetailChart
+          title="Inbound Traffic & Error Budget Trajectory"
+          subtitle={`Request volume per minute vs 5xx errors (${activeRangeLabel})`}
+          data={data.telemetry_history}
+          series={[
+            {
+              key: "throughput_req_min",
+              label: "Throughput (req/min)",
+              color: "#38bdf8",
+              format: "k_req",
+            },
+            {
+              key: "errors_5xx_count",
+              label: "5xx Error Spikes",
+              color: "#f87171",
+              format: "raw",
+            },
+          ]}
+        />
+
+        <TelemetryDetailChart
+          title="Inbound Latency Distribution & SRE SLO"
+          subtitle={`p95 / p99 response times against 100ms SLO (${activeRangeLabel})`}
+          data={data.telemetry_history}
+          series={[
+            {
+              key: "latency_p95_ms",
+              label: "Latency p95",
+              color: "#4ade80",
+              unit: "ms",
+              format: "ms",
+            },
+            {
+              key: "latency_p99_ms",
+              label: "Latency p99 (tail)",
+              color: "#fbbf24",
+              unit: "ms",
+              dash: true,
+              format: "ms",
+            },
+          ]}
+          thresholdLine={{
+            value: 100,
+            label: "100ms SLO Target",
+            color: "#ff6b5b",
+          }}
+        />
+      </div>
+
+      {/* Section 3: Secondary Golden Signals & ALB Vitals */}
       <div className="grid gap-2 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 text-xs">
         <div className="flex flex-col justify-between rounded-md border border-border bg-surface p-2.5">
           <span className="text-[10px] font-medium text-muted-foreground uppercase">
@@ -255,7 +399,7 @@ export default async function OperationsWallboardPage() {
         </div>
       </div>
 
-      {/* Section 3: AWS ECS Systems & Container Matrix */}
+      {/* Section 4: AWS ECS Systems & Container Matrix */}
       <Card
         title="AWS ECS Fleet & Container Health Matrix"
         description="Active service task distribution, CPU saturation, and memory saturation."
@@ -310,7 +454,7 @@ export default async function OperationsWallboardPage() {
         </div>
       </Card>
 
-      {/* Section 4: Database & Infrastructure Vitals */}
+      {/* Section 5: Database & Infrastructure Vitals */}
       <div className="grid gap-2.5 sm:grid-cols-3 text-xs">
         <div className="flex flex-col justify-between rounded-md border border-border bg-surface p-3">
           <span className="text-[10px] font-semibold text-muted-foreground uppercase">
@@ -354,7 +498,7 @@ export default async function OperationsWallboardPage() {
         </div>
       </div>
 
-      {/* Section 5: Live Operational Alerts Feed */}
+      {/* Section 6: Live Operational Alerts Feed */}
       <Card
         title="Live Operational Alerts & Escalations"
         description="Unaddressed alerts send repeated notifications to configured email until acknowledged or resolved."

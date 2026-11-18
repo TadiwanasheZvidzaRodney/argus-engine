@@ -87,3 +87,35 @@ test("kiosk mode hides sidebar and expands wallboard to 100% width", async ({ pa
   await expect(aside).toBeVisible();
   await expect(page.locator("html")).not.toHaveAttribute("data-kiosk");
 });
+
+test("ops wallboard renders time-series graphs and switches range filters", async ({ page }) => {
+  await page.goto("/login");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page).toHaveURL(/\/overview/);
+
+  await page.goto("/ops");
+  await expect(page).toHaveURL(/\/ops/);
+
+  // Time range filter is visible
+  const filterGroup = page.getByRole("group", { name: "Time range selector" });
+  await expect(filterGroup).toBeVisible();
+  await expect(page.getByText("Today (Since 00:00)")).toBeVisible();
+
+  // Metric tiles have SVG graph paths
+  const svgPaths = page.locator("svg path");
+  await expect(svgPaths.first()).toBeVisible();
+
+  // Deep-dive graphs are rendered
+  await expect(page.getByText("Inbound Traffic & Error Budget Trajectory")).toBeVisible();
+  await expect(page.getByText("Inbound Latency Distribution & SRE SLO")).toBeVisible();
+
+  // Switch to Last 7 Days
+  await page.getByRole("button", { name: "7 Days" }).click();
+  await expect(page).toHaveURL(/range=7d/);
+  await expect(page.getByText("Past 7 Days").first()).toBeVisible();
+
+  // Switch to Last 30 Days
+  await page.getByRole("button", { name: "30 Days" }).click();
+  await expect(page).toHaveURL(/range=30d/);
+  await expect(page.getByText("Past 30 Days").first()).toBeVisible();
+});
