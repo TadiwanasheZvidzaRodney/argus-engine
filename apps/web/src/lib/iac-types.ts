@@ -37,7 +37,8 @@ export interface IacPullRequest {
   title: string;
   branch_name: string;
   hcl_diff: string;
-  status: "OPEN" | "MERGED" | "CLOSED";
+  proposal_hash: string;
+  status: "PENDING_APPROVAL" | "OPEN" | "MERGED" | "CLOSED";
   created_at: string;
 }
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from argus_api.iac.drift import detect_iac_drift
@@ -16,6 +17,25 @@ from fastapi.testclient import TestClient
 
 ACCOUNT = "123456789012"
 OWNER = str(new_uuid7())
+
+
+@pytest.fixture(autouse=True)
+def github_bridge(monkeypatch: pytest.MonkeyPatch):
+    """All GitHub writes are mocked in tests; never use developer credentials."""
+    client = Mock()
+
+    async def verify(url, branch, path):
+        return {"repo_url": url, "slug": url.removeprefix("https://github.com/")}
+
+    client.verify_repository = AsyncMock(side_effect=verify)
+    client.publish_proposal = AsyncMock(
+        return_value={
+            "html_url": "https://github.com/acme-corp/aws-terraform-live/pull/1",
+            "number": 1,
+        }
+    )
+    monkeypatch.setattr("argus_api.routers.iac._github", lambda request, auth: client)
+    return client
 
 
 def _headers(tenant: str, role: str = "owner", key: str | None = None) -> dict[str, str]:
@@ -147,7 +167,11 @@ def test_gitops_repository_crud_and_listing(client: TestClient, seeded_tenant: s
     assert any(r["id"] == repo_data["id"] for r in repos)
 
 
-def test_drift_scan_and_pull_request_synthesis_flow(client: TestClient, seeded_tenant: str) -> None:
+def test_drift_scan_and_pull_request_synthesis_flow(
+    client: TestClient,
+    seeded_tenant: str,
+    github_bridge,
+) -> None:
     # 1. Trigger drift scan over graph
     scan_res = client.post("/api/v1/iac/drift/scan", headers=_headers(seeded_tenant))
     assert scan_res.status_code == 200, scan_res.text
@@ -159,7 +183,13 @@ def test_drift_scan_and_pull_request_synthesis_flow(client: TestClient, seeded_t
     records = drift_res.json()
     assert isinstance(records, list)
 
-    # 3. Synthesize GitOps PR
+    connected = client.post(
+        "/api/v1/iac/repositories",
+        json={"repo_url": "https://github.com/acme-corp/aws-terraform-live"},
+        headers=_headers(seeded_tenant),
+    )
+    assert connected.status_code == 201
+    # 3. Prepare locally; this must NOT create a GitHub PR.
     pr_res = client.post(
         "/api/v1/iac/prs",
         json={
@@ -171,15 +201,52 @@ def test_drift_scan_and_pull_request_synthesis_flow(client: TestClient, seeded_t
     )
     assert pr_res.status_code == 201, pr_res.text
     pr = pr_res.json()
-    assert pr["status"] == "OPEN"
-    assert pr["pr_url"].startswith("https://github.com/")
+    assert pr["status"] == "PENDING_APPROVAL"
+    assert pr["pr_url"] == ""
+    assert pr["pr_number"] == 0
     assert pr["hcl_diff"]
+    github_bridge.publish_proposal.assert_not_called()
 
     # 4. List PRs
     prs_res = client.get("/api/v1/iac/prs", headers=_headers(seeded_tenant))
     assert prs_res.status_code == 200
     all_prs = prs_res.json()
     assert any(p["id"] == pr["id"] for p in all_prs)
+    wrong = client.post(
+        f"/api/v1/iac/prs/{pr['id']}/approve",
+        json={"proposal_hash": "0" * 64},
+        headers=_headers(seeded_tenant),
+    )
+    assert wrong.status_code == 409
+    operator = client.post(
+        f"/api/v1/iac/prs/{pr['id']}/approve",
+        json={"proposal_hash": pr["proposal_hash"]},
+        headers=_headers(seeded_tenant, "operator"),
+    )
+    assert operator.status_code == 403
+    other = client.post(
+        f"/api/v1/iac/prs/{pr['id']}/approve",
+        json={"proposal_hash": pr["proposal_hash"]},
+        headers=_headers(str(new_uuid7())),
+    )
+    assert other.status_code == 404
+    github_bridge.publish_proposal.assert_not_called()
+    approved = client.post(
+        f"/api/v1/iac/prs/{pr['id']}/approve",
+        json={"proposal_hash": pr["proposal_hash"]},
+        headers=_headers(seeded_tenant),
+    )
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["draft"] is True
+    github_bridge.publish_proposal.assert_awaited_once()
+    # Retrying approval returns the real recorded URL, not a second PR.
+    again = client.post(
+        f"/api/v1/iac/prs/{pr['id']}/approve",
+        json={"proposal_hash": pr["proposal_hash"]},
+        headers=_headers(seeded_tenant),
+    )
+    assert again.status_code == 200
+    github_bridge.publish_proposal.assert_awaited_once()
 
 
 def test_iac_tenant_isolation(client: TestClient, seeded_tenant: str) -> None:

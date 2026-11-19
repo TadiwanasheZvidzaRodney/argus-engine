@@ -65,12 +65,14 @@ export default function TopologyPage() {
     async function loadTopology() {
       setLoading(true);
       try {
+        const root = new URLSearchParams(window.location.search).get("root");
         const data = await apiFetch<TopologySlice>("/api/v1/topology/query", {
           method: "POST",
-          body: { depth: 2, max_nodes: 500, max_edges: 1500 },
+          body: { ...(root ? { root } : {}), depth: 2, max_nodes: 500, max_edges: 1500 },
           timeoutMs: 10_000,
         });
         setSlice(data);
+        if (root && data.nodes.some((node) => node.id === root)) setSelectedNodeId(root);
       } catch (err) {
         console.error("Topology query failed:", err);
         setSlice(null);

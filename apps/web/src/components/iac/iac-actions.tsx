@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import React, { useState } from "react";
 
 import { apiFetch } from "@/lib/api";
-import type { IacDriftRecord } from "@/lib/iac-types";
+import type { IacDriftRecord, IacPullRequest } from "@/lib/iac-types";
 import { newIdempotencyKey } from "@/lib/idempotency";
 
 export function ScanDriftButton() {
@@ -83,7 +83,11 @@ export function ConnectRepoCard() {
   }
 
   return (
-    <Card title="Connect Git Repository (GitHub / GitLab)">
+    <Card title="Connect GitHub Repository">
+      <p className="text-xs text-muted-foreground">
+        Uses the API host’s GitHub CLI keyring. Repository, branch and directory access are
+        validated. No token is required in this form.
+      </p>
       <form onSubmit={handleConnect} className="flex flex-col gap-3">
         <div>
           <label className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -136,7 +140,7 @@ export function ConnectRepoCard() {
 export function SynthesizeDriftPrButton({ drift }: { drift: IacDriftRecord }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
-  const [prUrl, setPrUrl] = useState<string | null>(null);
+  const [prepared, setPrepared] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function handleSynthesize() {
@@ -150,20 +154,20 @@ export function SynthesizeDriftPrButton({ drift }: { drift: IacDriftRecord }) {
     }
 
     try {
-      const res = await apiFetch<{ pr_url: string }>("/api/v1/iac/prs", {
+      await apiFetch("/api/v1/iac/prs", {
         method: "POST",
         idempotencyKey: newIdempotencyKey("synth-pr"),
         body: {
           action_type: actionType,
           target_resource_id: drift.resource_id,
           parameters: {
-            port: 22,
-            cidr: "0.0.0.0/0",
-            tags: { Environment: "production", ManagedBy: "terraform" },
+            evidence_type: "graph_heuristic",
+            observed: drift.drift_details.live_value,
+            expected: drift.drift_details.expected_iac_value,
           },
         },
       });
-      setPrUrl(res.pr_url);
+      setPrepared(true);
       router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Failed to open PR.");
@@ -172,25 +176,59 @@ export function SynthesizeDriftPrButton({ drift }: { drift: IacDriftRecord }) {
     }
   }
 
-  if (prUrl) {
+  if (prepared) {
     return (
-      <a
-        href={prUrl}
-        target="_blank"
-        rel="noreferrer"
-        className="text-xs font-semibold text-accent underline underline-offset-4"
-      >
-        View GitHub PR ↗
-      </a>
+      <span className="text-xs font-semibold text-info">Proposal prepared · review below</span>
     );
   }
 
   return (
     <div className="flex items-center gap-1.5">
       <Button size="sm" variant="primary" loading={busy} onClick={handleSynthesize}>
-        Open GitOps PR
+        Prepare proposal
       </Button>
       {error && <span className="text-[10px] text-danger">{error}</span>}
+    </div>
+  );
+}
+
+export function ApproveProposalButton({ proposal }: { proposal: IacPullRequest }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function approve() {
+    if (
+      !window.confirm(
+        "Have you reviewed the exact proposal below? This creates a real GitHub branch and draft PR containing this Markdown proposal only. No AWS changes or auto-merge.",
+      )
+    )
+      return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiFetch(`/api/v1/iac/prs/${proposal.id}/approve`, {
+        method: "POST",
+        idempotencyKey: newIdempotencyKey("approve-gitops"),
+        body: { proposal_hash: proposal.proposal_hash },
+        timeoutMs: 120_000,
+      });
+      router.refresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Publication failed. Retry to recover.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      <Button size="sm" loading={busy} onClick={approve}>
+        Approve & publish draft PR
+      </Button>
+      {error && (
+        <p role="alert" className="text-xs text-danger">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

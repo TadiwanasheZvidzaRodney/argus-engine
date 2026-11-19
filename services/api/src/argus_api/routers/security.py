@@ -8,15 +8,17 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from argus_core.events import new_uuid7
-from fastapi import APIRouter, Depends, Request
+from argus_core.logging import get_logger
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from argus_api.auth import AuthContext, Permission, get_tenant_db, require_permission
-from argus_api.models import AttackPathCacheModel, FindingModel
+from argus_api.models import AttackPathCacheModel, FindingEventModel, FindingModel
 from argus_api.routers.sync import _get_graph_repo
 from argus_api.security.attack_paths import compute_attack_paths
+from argus_api.security.dashboard import SecurityRange, finding_history, posture
 from argus_api.security.engine import run_security_scan
 from argus_api.security.materialize import materialize_security_graph
 from argus_api.security.rules import (
@@ -84,18 +86,17 @@ async def _load_graph(
 
 @router.get("/summary", summary="Security posture summary")
 async def security_summary(
+    request: Request,
+    time_range: SecurityRange = Query(default="14d", alias="range"),
     session: AsyncSession = Depends(get_tenant_db),
     auth: AuthContext = Depends(require_permission(Permission.READ_TOPOLOGY)),
 ) -> dict[str, Any]:
-    rows = (
-        (
-            await session.execute(
-                select(FindingModel).where(FindingModel.tenant_id == auth.tenant_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
+    query = select(FindingModel).where(FindingModel.tenant_id == auth.tenant_id)
+    if auth.account_scopes is not None:
+        query = query.where(FindingModel.account_id.in_(auth.account_scopes))
+    if auth.region_scopes is not None:
+        query = query.where(FindingModel.region.in_(auth.region_scopes))
+    rows = (await session.execute(query)).scalars().all()
     by_severity: dict[str, int] = {}
     by_status: dict[str, int] = {}
     by_account: dict[str, int] = {}
@@ -132,7 +133,56 @@ async def security_summary(
         key=lambda row: (-SEVERITY_RANK.get(row.severity, 0), row.first_seen),
     )[:10]
 
+    events = (
+        (
+            await session.execute(
+                select(FindingEventModel)
+                .where(
+                    FindingEventModel.tenant_id == auth.tenant_id,
+                    FindingEventModel.created_at <= now,
+                    FindingEventModel.finding_id.in_(query.with_only_columns(FindingModel.id)),
+                )
+                .order_by(FindingEventModel.created_at, FindingEventModel.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    graph = None
+    paths = None
+    try:
+        graph = (
+            SecurityGraph([], [])
+            if auth.account_scopes == () or auth.region_scopes == ()
+            else await _load_graph(
+                request,
+                auth,
+                list(auth.account_scopes) if auth.account_scopes is not None else None,
+                list(auth.region_scopes) if auth.region_scopes is not None else None,
+            )
+        )
+        # Filter explicitly too: empty scopes must not mean unrestricted access.
+        graph = SecurityGraph(
+            [
+                node
+                for node in graph.nodes
+                if auth.can_access_account(str(node.get("account_id", "")))
+                and (auth.region_scopes is None or node.get("region") in auth.region_scopes)
+            ],
+            graph.edges,
+        )
+        paths = {**compute_attack_paths(graph, max_depth=8, limit=25).to_dict(), "cached": False}
+    except Exception as exc:
+        get_logger("security.dashboard").warning("graph.unavailable", error=type(exc).__name__)
+
     return {
+        "generated_at": now.isoformat(),
+        "source": (
+            "Stored finding lifecycle records and the discovered graph; not live AWS polling."
+        ),
+        **finding_history(rows, events, time_range, now),
+        "posture": posture(rows, graph, paths, now),
+        "attack_paths": paths,
         "total": len(rows),
         "open_total": sum(open_by_severity.values()),
         "by_severity": by_severity,

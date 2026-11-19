@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import base64
 import secrets
+from collections.abc import AsyncIterator
 
 import pytest
+from argus_core.events import new_uuid7
 from argus_core.graph.client import build_graph_driver
 from argus_core.graph.repository import GraphRepository
 from argus_core.settings import Settings
@@ -14,25 +16,41 @@ from fastapi.testclient import TestClient
 ACCOUNT = "123456789012"
 VPC_ARN = f"arn:aws:ec2:us-east-1:{ACCOUNT}:vpc/vpc-0{ACCOUNT[:4]}1122"
 SUBNET_ARN = f"arn:aws:ec2:us-east-1:{ACCOUNT}:subnet/subnet-0{ACCOUNT[:4]}5566"
+OWNER = str(new_uuid7())
 
 
-@pytest.fixture(autouse=True)
-async def _ensure_graph_fixture() -> None:
-    settings = Settings(_env_file=None)
+def _headers(tenant: str) -> dict[str, str]:
+    return {
+        "Authorization": f"stub:{OWNER}:{tenant}:owner:owner@argus.local",
+    }
+
+
+@pytest.fixture
+async def graph_tenant() -> AsyncIterator[str]:
+    tenant_uuid = new_uuid7()
+    tenant_key = f"tnt_{tenant_uuid}"
+    settings = Settings(neo4j_uri="bolt://127.0.0.1:7687", _env_file=None)
     driver = build_graph_driver(settings)
     repo = GraphRepository(driver)
-    tenant_key = "tnt_0190c3a1-0000-7000-8000-000000000001"
-    existing = await repo.get_resource_detail(tenant_key, VPC_ARN)
-    if existing is None:
-        nodes = build_enterprise_topology(tenant_id=tenant_key, account_id=ACCOUNT)
-        edges = RelationshipResolver.resolve(tenant_key, nodes)
-        await repo.upsert_nodes(tenant_key, nodes)
-        await repo.upsert_edges(tenant_key, edges)
-    await driver.close()
+    nodes = build_enterprise_topology(tenant_id=tenant_key, account_id=ACCOUNT)
+    edges = RelationshipResolver.resolve(tenant_key, nodes)
+    await repo.upsert_nodes(tenant_key, nodes)
+    await repo.upsert_edges(tenant_key, edges)
+    try:
+        yield str(tenant_uuid)
+    finally:
+        async with driver.session() as session:
+            await session.run(
+                "MATCH (n:Resource {tenant_id: $tenant}) DETACH DELETE n",
+                {"tenant": tenant_key},
+            )
+        await driver.close()
 
 
-def test_resource_list_and_cursor_pagination(client: TestClient) -> None:
-    response = client.get("/api/v1/resources", params={"limit": 5})
+def test_resource_list_and_cursor_pagination(client: TestClient, graph_tenant: str) -> None:
+    response = client.get(
+        "/api/v1/resources", params={"limit": 5}, headers=_headers(graph_tenant)
+    )
     assert response.status_code == 200
     data = response.json()
     assert "items" in data
@@ -44,16 +62,17 @@ def test_resource_list_and_cursor_pagination(client: TestClient) -> None:
     next_page = client.get(
         "/api/v1/resources",
         params={"limit": 5, "cursor": data["next_cursor"]},
+        headers=_headers(graph_tenant),
     )
     assert next_page.status_code == 200
     next_data = next_page.json()
     assert len(next_data["items"]) <= 5
 
 
-def test_resource_detail_and_relationships(client: TestClient) -> None:
+def test_resource_detail_and_relationships(client: TestClient, graph_tenant: str) -> None:
     # 1. Detail using Base64URL-encoded ARN
     encoded_arn = base64.urlsafe_b64encode(VPC_ARN.encode()).decode().rstrip("=")
-    detail_res = client.get(f"/api/v1/resources/{encoded_arn}")
+    detail_res = client.get(f"/api/v1/resources/{encoded_arn}", headers=_headers(graph_tenant))
     assert detail_res.status_code == 200
     detail = detail_res.json()
     assert detail["arn"] == VPC_ARN
@@ -61,7 +80,9 @@ def test_resource_detail_and_relationships(client: TestClient) -> None:
     assert "cidr_block" in detail["properties"]
 
     # 2. Relationships of VPC
-    rel_res = client.get(f"/api/v1/resources/{encoded_arn}/relationships")
+    rel_res = client.get(
+        f"/api/v1/resources/{encoded_arn}/relationships", headers=_headers(graph_tenant)
+    )
     assert rel_res.status_code == 200
     rels = rel_res.json()
     assert len(rels) >= 1
@@ -69,7 +90,7 @@ def test_resource_detail_and_relationships(client: TestClient) -> None:
     assert "CONTAINS" in types
 
 
-def test_topology_query_slice_and_etag_caching(client: TestClient) -> None:
+def test_topology_query_slice_and_etag_caching(client: TestClient, graph_tenant: str) -> None:
     body = {
         "root": VPC_ARN,
         "depth": 2,
@@ -78,7 +99,7 @@ def test_topology_query_slice_and_etag_caching(client: TestClient) -> None:
     }
 
     # 1. First query returns 200 with ETag header
-    res1 = client.post("/api/v1/topology/query", json=body)
+    res1 = client.post("/api/v1/topology/query", json=body, headers=_headers(graph_tenant))
     assert res1.status_code == 200
     etag = res1.headers.get("etag")
     assert etag is not None
@@ -92,13 +113,13 @@ def test_topology_query_slice_and_etag_caching(client: TestClient) -> None:
     res2 = client.post(
         "/api/v1/topology/query",
         json=body,
-        headers={"If-None-Match": etag},
+        headers={"If-None-Match": etag, **_headers(graph_tenant)},
     )
     assert res2.status_code == 304
 
 
-def test_topology_aggregate(client: TestClient) -> None:
-    response = client.get("/api/v1/topology/aggregate")
+def test_topology_aggregate(client: TestClient, graph_tenant: str) -> None:
+    response = client.get("/api/v1/topology/aggregate", headers=_headers(graph_tenant))
     assert response.status_code == 200
     data = response.json()
     assert "by_type" in data
@@ -107,8 +128,10 @@ def test_topology_aggregate(client: TestClient) -> None:
     assert "AWS::EC2::VPC" in data["by_type"]
 
 
-def test_topology_search_and_ranking(client: TestClient) -> None:
-    response = client.get("/api/v1/topology/search", params={"q": "vpc"})
+def test_topology_search_and_ranking(client: TestClient, graph_tenant: str) -> None:
+    response = client.get(
+        "/api/v1/topology/search", params={"q": "vpc"}, headers=_headers(graph_tenant)
+    )
     assert response.status_code == 200
     data = response.json()
     assert data["total"] >= 1
@@ -122,11 +145,12 @@ def test_topology_search_and_ranking(client: TestClient) -> None:
     assert "accounts" in data["facets"]
 
 
-def test_shortest_path_and_blast_radius(client: TestClient) -> None:
+def test_shortest_path_and_blast_radius(client: TestClient, graph_tenant: str) -> None:
     # 1. Shortest path from VPC to Subnet
     path_res = client.post(
         "/api/v1/topology/paths",
         json={"source_id": VPC_ARN, "target_id": SUBNET_ARN, "max_depth": 3},
+        headers=_headers(graph_tenant),
     )
     assert path_res.status_code == 200
     hops = path_res.json()
@@ -137,6 +161,7 @@ def test_shortest_path_and_blast_radius(client: TestClient) -> None:
     blast_res = client.post(
         "/api/v1/topology/blast-radius",
         json={"source_id": VPC_ARN, "max_depth": 2, "max_nodes": 50},
+        headers=_headers(graph_tenant),
     )
     assert blast_res.status_code == 200
     blast = blast_res.json()
@@ -144,12 +169,12 @@ def test_shortest_path_and_blast_radius(client: TestClient) -> None:
     assert blast["reachable_count"] >= 1
 
 
-def test_snapshots_and_diff(client: TestClient) -> None:
+def test_snapshots_and_diff(client: TestClient, graph_tenant: str) -> None:
     # 1. Create snapshot
     create_res = client.post(
         "/api/v1/topology/snapshots",
         json={"scope": "full"},
-        headers={"Idempotency-Key": f"snap-{secrets.token_hex(4)}"},
+        headers={"Idempotency-Key": f"snap-{secrets.token_hex(4)}", **_headers(graph_tenant)},
     )
     assert create_res.status_code == 201
     snap = create_res.json()
@@ -157,7 +182,7 @@ def test_snapshots_and_diff(client: TestClient) -> None:
     assert snap["node_count"] > 0
 
     # 2. List snapshots
-    list_res = client.get("/api/v1/topology/snapshots")
+    list_res = client.get("/api/v1/topology/snapshots", headers=_headers(graph_tenant))
     assert list_res.status_code == 200
     snaps = list_res.json()
     assert any(s["id"] == snap["id"] for s in snaps)
@@ -166,7 +191,7 @@ def test_snapshots_and_diff(client: TestClient) -> None:
     diff_res = client.post(
         "/api/v1/topology/diff",
         json={"base_snapshot_id": snap["id"]},
-        headers={"Idempotency-Key": f"diff-{secrets.token_hex(4)}"},
+        headers={"Idempotency-Key": f"diff-{secrets.token_hex(4)}", **_headers(graph_tenant)},
     )
     assert diff_res.status_code == 200
     diff = diff_res.json()
@@ -174,8 +199,8 @@ def test_snapshots_and_diff(client: TestClient) -> None:
     assert "diff_summary" in diff
 
 
-def test_graph_version_endpoint(client: TestClient) -> None:
-    response = client.get("/api/v1/topology/version")
+def test_graph_version_endpoint(client: TestClient, graph_tenant: str) -> None:
+    response = client.get("/api/v1/topology/version", headers=_headers(graph_tenant))
     assert response.status_code == 200
     data = response.json()
     assert data["tenant_id"].startswith("tnt_")

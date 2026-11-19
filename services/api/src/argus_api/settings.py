@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Literal
+from uuid import UUID
 
 from argus_core.settings import Settings
 from pydantic import Field
@@ -21,6 +22,11 @@ class ApiSettings(Settings):
     log_format: Literal["json", "console"] = "json"
     # Instance-wide kill switch. Per-tenant switches are stored in PostgreSQL.
     writes_enabled: bool = True
+    # Local GitHub CLI/keyring bridge: explicitly bound to one tenant and repo allowlist.
+    github_enabled: bool = False
+    github_tenant_id: UUID | None = None
+    github_owner: str | None = None
+    github_repositories: list[str] = Field(default_factory=list)
     # Phase 7 telemetry quotas and cost controls.
     telemetry_daily_metric_budget: int = Field(default=100_000, ge=1)
     telemetry_max_resources_per_subscription: int = Field(default=500, ge=1)

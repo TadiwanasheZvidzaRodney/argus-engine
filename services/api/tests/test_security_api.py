@@ -194,6 +194,85 @@ def test_scan_dedupes_and_produces_findings(client: TestClient, seeded_tenant: s
     assert len(rules.json()) == 20
 
 
+def test_dashboard_ranges_and_tenant_isolation(client: TestClient, seeded_tenant: str) -> None:
+    scan = _scan(client, seeded_tenant)
+    for selected in ["today", "24h", "7d", "14d", "30d"]:
+        response = client.get(
+            "/api/v1/security/summary",
+            params={"range": selected},
+            headers=_headers(seeded_tenant),
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["time_range"] == selected
+        assert data["open_total"] == scan["created"]
+        assert data["posture"]["score"] is not None
+        assert 0 <= data["posture"]["score"] <= 100
+        assert len(data["posture"]["domains"]) == 4
+        assert data["trend_history"][-1]["active"] == data["open_total"]
+        assert data["attack_paths"]["evaluated_nodes"] > 0
+        assert data["timezone"] == "UTC"
+    assert (
+        client.get(
+            "/api/v1/security/summary?range=invalid", headers=_headers(seeded_tenant)
+        ).status_code
+        == 422
+    )
+    other = client.get(
+        "/api/v1/security/summary?range=today", headers=_headers(str(new_uuid7()))
+    ).json()
+    assert other["open_total"] == 0
+    assert other["posture"]["score"] is None
+    assert all(p["active"] is None for p in other["trend_history"])
+
+
+def test_dashboard_graph_outage_not_misrepresented_as_healthy(
+    client: TestClient,
+    seeded_tenant: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unittest.mock import AsyncMock
+
+    _scan(client, seeded_tenant)
+    monkeypatch.setattr(
+        "argus_api.routers.security._load_graph", AsyncMock(side_effect=ConnectionError("offline"))
+    )
+    response = client.get("/api/v1/security/summary", headers=_headers(seeded_tenant))
+    assert response.status_code == 200
+    data = response.json()
+    assert data["posture"]["graph_available"] is False
+    assert data["posture"]["score"] is None
+    assert data["attack_paths"] is None
+    assert data["open_total"] > 0
+
+
+def test_dashboard_obeys_account_scopes(client: TestClient, seeded_tenant: str) -> None:
+    from uuid import UUID
+
+    from argus_api.auth import AuthContext, Role, get_current_auth
+
+    _scan(client, seeded_tenant)
+    app = client.app
+    app.dependency_overrides[get_current_auth] = lambda: AuthContext(
+        user_id=UUID(OWNER),
+        tenant_id=UUID(seeded_tenant),
+        email="viewer@example.test",
+        role=Role.VIEWER,
+        account_scopes=(),
+    )
+    try:
+        response = client.get("/api/v1/security/summary?range=30d")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 0
+        assert data["posture"]["score"] is None
+        assert data["posture"]["resources_observed"] == 0
+        assert data["attack_paths"]["evaluated_nodes"] == 0
+        assert all(point["active"] is None for point in data["trend_history"])
+    finally:
+        app.dependency_overrides.pop(get_current_auth)
+
+
 def test_findings_lifecycle_and_remediation(client: TestClient, seeded_tenant: str) -> None:
     _scan(client, seeded_tenant)
     listing = client.get(

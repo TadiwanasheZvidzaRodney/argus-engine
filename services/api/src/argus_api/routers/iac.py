@@ -2,25 +2,29 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from argus_core.errors import Conflict, Forbidden, NotFound, UnprocessableEntity
 from argus_core.events import new_uuid7
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from argus_api.actions.audit import append_audit
 from argus_api.auth import AuthContext, Permission, get_tenant_db, require_permission
 from argus_api.iac.drift import detect_iac_drift
-from argus_api.iac.synthesizer import synthesize_hcl_diff
-from argus_api.iac.vcs import create_or_simulate_pull_request
+from argus_api.iac.github import LOCAL_GH_AUTH_REF, GitHubClient
 from argus_api.models import (
     GitRepositoryModel,
     IacDriftRecordModel,
     IacPullRequestModel,
 )
+from argus_api.routers.actions import _assert_writes_enabled
 from argus_api.routers.sync import _get_graph_repo
 
 router = APIRouter(prefix="/api/v1/iac", tags=["iac"])
@@ -39,6 +43,39 @@ class SynthesizePrRequest(BaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict)
     repo_id: UUID | None = None
     action_id: UUID | None = None
+
+
+class ApproveProposalRequest(BaseModel):
+    proposal_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+
+def _github(request: Request, auth: AuthContext) -> GitHubClient:
+    settings = request.app.state.settings
+    if (
+        not settings.github_enabled
+        or settings.env.value != "local"
+        or settings.github_tenant_id != auth.tenant_id
+        or not settings.github_owner
+    ):
+        raise Forbidden("Local GitHub integration is not enabled for this tenant.")
+    return GitHubClient(settings.github_owner, settings.github_repositories)
+
+
+@router.get("/github/status", summary="Local GitHub integration configuration")
+async def github_status(
+    request: Request,
+    auth: AuthContext = Depends(require_permission(Permission.READ_TOPOLOGY)),
+) -> dict[str, Any]:
+    try:
+        client = _github(request, auth)
+    except Forbidden:
+        return {"enabled": False, "mode": "disabled"}
+    return {
+        "enabled": True,
+        "mode": "local-gh-keyring",
+        "owner": client.owner,
+        "publication": "approval-required-draft-markdown-proposals",
+    }
 
 
 @router.get("/repositories", summary="List connected IaC Git repositories")
@@ -65,7 +102,7 @@ async def list_repositories(
             "repo_url": r.repo_url,
             "default_branch": r.default_branch,
             "iac_path": r.iac_path,
-            "status": r.status,
+            "status": r.status if r.auth_token_ref == LOCAL_GH_AUTH_REF else "unverified",
             "created_at": r.created_at.isoformat(),
         }
         for r in rows
@@ -75,17 +112,34 @@ async def list_repositories(
 @router.post("/repositories", status_code=201, summary="Connect an IaC Git repository")
 async def create_repository(
     body: RepositoryCreateRequest,
+    request: Request,
     session: AsyncSession = Depends(get_tenant_db),
     auth: AuthContext = Depends(require_permission(Permission.MANAGE_ACCOUNTS)),
 ) -> dict[str, Any]:
+    if body.provider != "github":
+        raise UnprocessableEntity("Only validated GitHub repositories are supported.")
+    verified = await _github(request, auth).verify_repository(
+        body.repo_url, body.default_branch, body.iac_path
+    )
+    existing = (
+        await session.execute(
+            select(GitRepositoryModel).where(
+                GitRepositoryModel.tenant_id == auth.tenant_id,
+                GitRepositoryModel.repo_url == verified["repo_url"],
+            )
+        )
+    ).scalar_one_or_none()
+    if existing:
+        raise Conflict("Repository is already connected for this tenant.")
     repo = GitRepositoryModel(
         id=new_uuid7(),
         tenant_id=auth.tenant_id,
         provider=body.provider,
-        repo_url=body.repo_url,
+        repo_url=verified["repo_url"],
         default_branch=body.default_branch,
         iac_path=body.iac_path,
         status="active",
+        auth_token_ref=LOCAL_GH_AUTH_REF,
     )
     session.add(repo)
     await session.flush()
@@ -210,6 +264,7 @@ async def list_pull_requests(
             "title": r.title,
             "branch_name": r.branch_name,
             "hcl_diff": r.hcl_diff,
+            "proposal_hash": hashlib.sha256(r.hcl_diff.encode()).hexdigest(),
             "status": r.status,
             "created_at": r.created_at.isoformat(),
         }
@@ -217,13 +272,15 @@ async def list_pull_requests(
     ]
 
 
-@router.post("/prs", status_code=201, summary="Synthesize and open a GitOps Pull Request")
+@router.post("/prs", status_code=201, summary="Prepare a local GitOps proposal for approval")
 async def synthesize_pr(
     body: SynthesizePrRequest,
+    request: Request,
     session: AsyncSession = Depends(get_tenant_db),
     auth: AuthContext = Depends(require_permission(Permission.REQUEST_ACTION)),
 ) -> dict[str, Any]:
-    # Resolve repository
+    # Preparation is local only. No GitHub branch or PR is created here.
+    github = _github(request, auth)
     repo = None
     if body.repo_id:
         repo = (
@@ -235,48 +292,66 @@ async def synthesize_pr(
             )
         ).scalar_one_or_none()
 
-    if repo is None:
+    if repo is None and body.repo_id is None:
         repo = (
             await session.execute(
                 select(GitRepositoryModel)
-                .where(GitRepositoryModel.tenant_id == auth.tenant_id)
+                .where(
+                    GitRepositoryModel.tenant_id == auth.tenant_id,
+                    GitRepositoryModel.auth_token_ref == LOCAL_GH_AUTH_REF,
+                    GitRepositoryModel.status == "active",
+                )
                 .order_by(desc(GitRepositoryModel.created_at))
                 .limit(1)
             )
         ).scalar_one_or_none()
 
-    repo_url = repo.repo_url if repo else "https://github.com/argus-customer/terraform-live"
-    repo_id = repo.id if repo else new_uuid7()
-
-    # Synthesize HCL diff
-    diff_data = synthesize_hcl_diff(
-        action_type=body.action_type,
-        target_resource_id=body.target_resource_id,
-        parameters=body.parameters,
+    if repo is None:
+        raise NotFound("Connect a validated repository before preparing a proposal.")
+    github.check_scope(repo.repo_url)
+    if repo.auth_token_ref != LOCAL_GH_AUTH_REF or repo.status != "active":
+        raise Conflict("Reconnect this repository using real GitHub validation.")
+    if body.action_id is not None:
+        raise UnprocessableEntity(
+            "This proposal flow does not execute or approve existing AWS action plans."
+        )
+    proposal_id = new_uuid7()
+    title = f"Argus remediation proposal: {body.action_type}"[:255]
+    content = (
+        "# Argus remediation proposal\n\n"
+        "**Proposal only. No Terraform changes have been generated or validated.**\n\n"
+        "Review resource ownership, IaC mapping, account identity and costs before "
+        "writing an implementation. Merging this document does not apply infrastructure.\n\n"
+        f"Proposal ID: `{proposal_id}`\n\n"
+        "Requested remediation:\n\n```json\n"
+        + json.dumps(body.model_dump(mode="json"), sort_keys=True, indent=2)
+        + "\n```\n"
     )
-
-    # Create / simulate Pull Request
-    vcs_pr = create_or_simulate_pull_request(
-        repo_url=repo_url,
-        action_type=body.action_type,
-        title=diff_data["summary"],
-        hcl_diff=diff_data["hcl_diff"],
-    )
-
     pr_model = IacPullRequestModel(
-        id=new_uuid7(),
+        id=proposal_id,
         tenant_id=auth.tenant_id,
-        action_id=body.action_id,
-        repo_id=repo_id,
-        pr_url=vcs_pr["pr_url"],
-        pr_number=vcs_pr["pr_number"],
-        title=vcs_pr["title"],
-        branch_name=vcs_pr["branch_name"],
-        hcl_diff=vcs_pr["hcl_diff"],
-        status="OPEN",
+        action_id=None,
+        repo_id=repo.id,
+        pr_url="",
+        pr_number=0,
+        title=title,
+        branch_name=f"argus/proposal-{proposal_id.hex}",
+        hcl_diff=content,
+        status="PENDING_APPROVAL",
     )
     session.add(pr_model)
     await session.flush()
+    await append_audit(
+        session,
+        auth=auth,
+        action="iac.proposal.prepared",
+        resource_type="gitops_proposal",
+        resource_id=str(pr_model.id),
+        metadata={
+            "repo_id": str(repo.id),
+            "proposal_hash": hashlib.sha256(content.encode()).hexdigest(),
+        },
+    )
 
     return {
         "id": str(pr_model.id),
@@ -286,4 +361,73 @@ async def synthesize_pr(
         "title": pr_model.title,
         "hcl_diff": pr_model.hcl_diff,
         "status": pr_model.status,
+        "proposal_hash": hashlib.sha256(content.encode()).hexdigest(),
+    }
+
+
+@router.post("/prs/{proposal_id}/approve", summary="Approve and publish a real draft proposal PR")
+async def approve_proposal(
+    proposal_id: UUID,
+    body: ApproveProposalRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_tenant_db),
+    auth: AuthContext = Depends(require_permission(Permission.APPROVE_ACTION)),
+) -> dict[str, Any]:
+    await _assert_writes_enabled(session, auth.tenant_id, request.app.state.settings)
+    github = _github(request, auth)
+    proposal = (
+        await session.execute(
+            select(IacPullRequestModel)
+            .where(
+                IacPullRequestModel.id == proposal_id,
+                IacPullRequestModel.tenant_id == auth.tenant_id,
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if proposal is None:
+        raise NotFound("Proposal not found.")
+    if hashlib.sha256(proposal.hcl_diff.encode()).hexdigest() != body.proposal_hash:
+        raise Conflict("Proposal changed. Review its current text before approving.")
+    if proposal.status == "OPEN":
+        return {"pr_url": proposal.pr_url, "pr_number": proposal.pr_number, "status": "OPEN"}
+    if proposal.status != "PENDING_APPROVAL":
+        raise Conflict("Only pending proposals can be published.")
+    repo = (
+        await session.execute(
+            select(GitRepositoryModel).where(
+                GitRepositoryModel.id == proposal.repo_id,
+                GitRepositoryModel.tenant_id == auth.tenant_id,
+                GitRepositoryModel.auth_token_ref == LOCAL_GH_AUTH_REF,
+                GitRepositoryModel.status == "active",
+            )
+        )
+    ).scalar_one_or_none()
+    if repo is None:
+        raise NotFound("Validated repository not found.")
+    published = await github.publish_proposal(
+        repo.repo_url,
+        repo.default_branch,
+        repo.iac_path,
+        proposal.id.hex,
+        proposal.title,
+        proposal.hcl_diff,
+    )
+    proposal.pr_url = published["html_url"]
+    proposal.pr_number = published["number"]
+    proposal.status = "OPEN"
+    await session.flush()
+    await append_audit(
+        session,
+        auth=auth,
+        action="iac.proposal.approved_and_published",
+        resource_type="gitops_proposal",
+        resource_id=str(proposal.id),
+        metadata={"proposal_hash": body.proposal_hash, "pr_url": proposal.pr_url},
+    )
+    return {
+        "pr_url": proposal.pr_url,
+        "pr_number": proposal.pr_number,
+        "status": "OPEN",
+        "draft": True,
     }

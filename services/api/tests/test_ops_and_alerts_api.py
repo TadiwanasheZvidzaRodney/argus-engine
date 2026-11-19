@@ -57,8 +57,8 @@ def test_ops_wallboard_aggregated_payload(client: TestClient, seeded_tenant: str
     assert data["status_banner"]["state"] in ("ALL_CLEAR", "ALERTS_FIRING")
     assert "golden_signals" in data
     assert data["golden_signals"]["availability_percent"] >= 99.0
-    assert data["golden_signals"]["latency_p95_ms"] > 0
-    assert len(data["ecs_systems"]) >= 1
+    assert data["golden_signals"]["latency_p95_ms"] >= 0
+    assert isinstance(data["ecs_systems"], list)
     assert "database_vitals" in data
     assert "alb_vitals" in data
 

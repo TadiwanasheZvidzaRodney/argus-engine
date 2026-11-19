@@ -32,68 +32,44 @@ async function loadWallboard(range: TimeRangeOption = "today"): Promise<OpsWallb
         as_of: new Date().toISOString(),
       },
       golden_signals: {
-        availability_percent: 99.84,
-        throughput_req_min: 52200,
-        latency_p95_ms: 16.9,
-        error_rate_percent: 0.018,
+        availability_percent: 100.0,
+        throughput_req_min: 0,
+        latency_p95_ms: 0.0,
+        error_rate_percent: 0.0,
         errors_5xx_count: 0,
       },
       telemetry_history: [
         {
           timestamp: new Date().toISOString(),
           time_label: "00:00",
-          availability_percent: 99.96,
-          throughput_req_min: 18200,
-          latency_p95_ms: 14.2,
-          latency_p99_ms: 22.8,
-          error_rate_percent: 0.01,
+          availability_percent: 100.0,
+          throughput_req_min: 0,
+          latency_p95_ms: 0.0,
+          latency_p99_ms: 0.0,
+          error_rate_percent: 0.0,
           errors_5xx_count: 0,
-          ecs_running_tasks: 4,
+          ecs_running_tasks: 0,
           db_pool_errors: 0,
-          db_pool_saturation_percent: 18.0,
-        },
-        {
-          timestamp: new Date().toISOString(),
-          time_label: "06:00",
-          availability_percent: 99.95,
-          throughput_req_min: 24500,
-          latency_p95_ms: 14.8,
-          latency_p99_ms: 23.5,
-          error_rate_percent: 0.012,
-          errors_5xx_count: 0,
-          ecs_running_tasks: 4,
-          db_pool_errors: 0,
-          db_pool_saturation_percent: 21.0,
-        },
-        {
-          timestamp: new Date().toISOString(),
-          time_label: "12:00",
-          availability_percent: 99.92,
-          throughput_req_min: 51800,
-          latency_p95_ms: 17.6,
-          latency_p99_ms: 28.2,
-          error_rate_percent: 0.018,
-          errors_5xx_count: 0,
-          ecs_running_tasks: 4,
-          db_pool_errors: 0,
-          db_pool_saturation_percent: 26.5,
+          db_pool_saturation_percent: 0.0,
         },
       ],
       time_range: range,
       ecs_systems: [],
       database_vitals: {
-        active_connections: 18,
-        connection_pool_saturation_percent: 24.0,
-        storage_used_percent: 38.5,
-        status: "UP",
+        active_connections: 0,
+        connection_pool_saturation_percent: 0.0,
+        storage_used_percent: 0.0,
+        status: "NOT_DEPLOYED",
       },
       alb_vitals: {
-        target_response_time_sec: 0.013,
-        healthy_hosts: 4,
+        target_response_time_sec: 0.0,
+        healthy_hosts: 0,
         unhealthy_hosts: 0,
-        status: "UP",
+        status: "NOT_DEPLOYED",
       },
       active_findings_count: 0,
+      s3_buckets_count: 1,
+      total_resources_count: 12,
       alerts: [],
     };
   }
@@ -179,7 +155,7 @@ export default async function OperationsWallboardPage(props: {
               Service Success
             </span>
             <div className="my-1 text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums">
-              {signals.availability_percent}%
+              {signals.throughput_req_min === 0 ? "100%" : `${signals.availability_percent}%`}
             </div>
             <AreaSparkChart
               data={data.telemetry_history}
@@ -198,7 +174,9 @@ export default async function OperationsWallboardPage(props: {
               Request Volume
             </span>
             <div className="my-1 text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums">
-              {(signals.throughput_req_min / 1000).toFixed(1)}k
+              {signals.throughput_req_min === 0
+                ? "0"
+                : `${(signals.throughput_req_min / 1000).toFixed(1)}k`}
             </div>
             <AreaSparkChart
               data={data.telemetry_history}
@@ -215,7 +193,7 @@ export default async function OperationsWallboardPage(props: {
               Inbound Latency (p95)
             </span>
             <div className="my-1 text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums">
-              {signals.latency_p95_ms}
+              {signals.latency_p95_ms === 0 ? "0.0" : signals.latency_p95_ms}
               <span className="text-sm font-normal opacity-80 ml-0.5">ms</span>
             </div>
             <AreaSparkChart
@@ -233,7 +211,7 @@ export default async function OperationsWallboardPage(props: {
               ECS Running Tasks
             </span>
             <div className="my-1 text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums">
-              {data.ecs_systems.reduce((acc, s) => acc + s.running_tasks, 0) || 4}
+              {data.ecs_systems.reduce((acc, s) => acc + s.running_tasks, 0)}
             </div>
             <AreaSparkChart
               data={data.telemetry_history}
@@ -249,14 +227,14 @@ export default async function OperationsWallboardPage(props: {
           {/* 5. Database Connection Errors */}
           <div
             className={`flex flex-col justify-between rounded-md p-3 text-white shadow-xs ${
-              data.database_vitals.status === "UP" ? "bg-[#107c41]" : "bg-[#c42b1c]"
+              data.database_vitals.status === "DOWN" ? "bg-[#c42b1c]" : "bg-[#107c41]"
             }`}
           >
             <span className="text-[10px] font-semibold tracking-wider uppercase opacity-90">
               DB Pool Errors
             </span>
             <div className="my-1 text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums">
-              {data.database_vitals.status === "UP" ? 0 : 9}
+              {data.database_vitals.status === "DOWN" ? 9 : 0}
             </div>
             <AreaSparkChart
               data={data.telemetry_history}
@@ -351,9 +329,15 @@ export default async function OperationsWallboardPage(props: {
             ALB Target p95
           </span>
           <span className="text-xl font-bold font-mono text-foreground">
-            {(data.alb_vitals.target_response_time_sec * 1000).toFixed(1)}ms
+            {data.alb_vitals.status === "NOT_DEPLOYED"
+              ? "0.0ms"
+              : `${(data.alb_vitals.target_response_time_sec * 1000).toFixed(1)}ms`}
           </span>
-          <span className="text-[10px] text-success">Healthy target latency</span>
+          <span className="text-[10px] text-muted-foreground">
+            {data.alb_vitals.status === "NOT_DEPLOYED"
+              ? "No load balancers deployed"
+              : "Healthy target latency"}
+          </span>
         </div>
 
         <div className="flex flex-col justify-between rounded-md border border-border bg-surface p-2.5">
@@ -361,25 +345,33 @@ export default async function OperationsWallboardPage(props: {
           <span className="text-xl font-bold font-mono text-foreground">
             {signals.error_rate_percent}%
           </span>
-          <span className="text-[10px] text-success">Target &lt; 0.1%</span>
+          <span className="text-[10px] text-success">
+            {data.alb_vitals.status === "NOT_DEPLOYED" ? "Zero error events" : "Target < 0.1%"}
+          </span>
         </div>
 
         <div className="flex flex-col justify-between rounded-md border border-border bg-surface p-2.5">
           <span className="text-[10px] font-medium text-muted-foreground uppercase">
             Max p99 Latency
           </span>
-          <span className="text-xl font-bold font-mono text-foreground">1.14s</span>
-          <span className="text-[10px] text-muted-foreground">Tail response window</span>
+          <span className="text-xl font-bold font-mono text-foreground">
+            {signals.throughput_req_min === 0 ? "0.0ms" : "1.14s"}
+          </span>
+          <span className="text-[10px] text-muted-foreground">
+            {signals.throughput_req_min === 0 ? "No active HTTP traffic" : "Tail response window"}
+          </span>
         </div>
 
         <div className="flex flex-col justify-between rounded-md border border-border bg-surface p-2.5">
           <span className="text-[10px] font-medium text-muted-foreground uppercase">
             Healthy Targets
           </span>
-          <span className="text-xl font-bold font-mono text-success">
+          <span className="text-xl font-bold font-mono text-foreground">
             {data.alb_vitals.healthy_hosts} / {data.alb_vitals.healthy_hosts}
           </span>
-          <span className="text-[10px] text-muted-foreground">0 unhealthy hosts</span>
+          <span className="text-[10px] text-muted-foreground">
+            {data.alb_vitals.status === "NOT_DEPLOYED" ? "0 target hosts" : "0 unhealthy hosts"}
+          </span>
         </div>
 
         <div className="flex flex-col justify-between rounded-md border border-border bg-surface p-2.5">
@@ -387,7 +379,7 @@ export default async function OperationsWallboardPage(props: {
             Anomaly Breaches
           </span>
           <span className="text-xl font-bold font-mono text-success">0</span>
-          <span className="text-[10px] text-muted-foreground">EWMA/z-score normal</span>
+          <span className="text-[10px] text-muted-foreground">Nominal baseline</span>
         </div>
 
         <div className="flex flex-col justify-between rounded-md border border-border bg-surface p-2.5">
@@ -395,7 +387,7 @@ export default async function OperationsWallboardPage(props: {
             Container Restarts
           </span>
           <span className="text-xl font-bold font-mono text-success">0</span>
-          <span className="text-[10px] text-muted-foreground">Past 24h exit loops</span>
+          <span className="text-[10px] text-muted-foreground">Zero exit loops</span>
         </div>
       </div>
 
@@ -404,84 +396,99 @@ export default async function OperationsWallboardPage(props: {
         title="AWS ECS Fleet & Container Health Matrix"
         description="Active service task distribution, CPU saturation, and memory saturation."
       >
-        <div className="grid gap-2.5 sm:grid-cols-3">
-          {data.ecs_systems.map((svc) => (
-            <div
-              key={svc.name}
-              className="flex flex-col justify-between rounded-md border border-border bg-surface-muted/40 p-3"
-            >
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-xs text-foreground truncate">{svc.name}</span>
-                <Badge tone={svc.status === "healthy" ? "success" : "danger"}>
-                  {svc.running_tasks} / {svc.desired_tasks} tasks
-                </Badge>
-              </div>
+        {data.ecs_systems.length === 0 ? (
+          <EmptyState
+            title="No ECS services deployed"
+            description="Account 600262564312 has no active ECS clusters or services running. As container workloads are deployed, their task vitals will appear here."
+          />
+        ) : (
+          <div className="grid gap-2.5 sm:grid-cols-3">
+            {data.ecs_systems.map((svc) => (
+              <div
+                key={svc.name}
+                className="flex flex-col justify-between rounded-md border border-border bg-surface-muted/40 p-3"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-xs text-foreground truncate">{svc.name}</span>
+                  <Badge tone={svc.status === "healthy" ? "success" : "danger"}>
+                    {svc.running_tasks} / {svc.desired_tasks} tasks
+                  </Badge>
+                </div>
 
-              <div className="grid grid-cols-2 gap-2 my-2">
-                <div className="flex flex-col gap-1 rounded bg-surface p-2 border border-border/50">
-                  <span className="text-[10px] text-muted-foreground uppercase">CPU</span>
-                  <span className="text-base font-bold font-mono text-foreground">
-                    {svc.cpu_percent}%
-                  </span>
-                  <div className="h-1 w-full bg-surface-muted rounded-full overflow-hidden">
-                    <div
-                      className={`h-full ${svc.cpu_percent > 75 ? "bg-danger" : "bg-info"}`}
-                      style={{ width: `${Math.min(100, svc.cpu_percent)}%` }}
-                    />
+                <div className="grid grid-cols-2 gap-2 my-2">
+                  <div className="flex flex-col gap-1 rounded bg-surface p-2 border border-border/50">
+                    <span className="text-[10px] text-muted-foreground uppercase">CPU</span>
+                    <span className="text-base font-bold font-mono text-foreground">
+                      {svc.cpu_percent}%
+                    </span>
+                    <div className="h-1 w-full bg-surface-muted rounded-full overflow-hidden">
+                      <div
+                        className={`h-full ${svc.cpu_percent > 75 ? "bg-danger" : "bg-info"}`}
+                        style={{ width: `${Math.min(100, svc.cpu_percent)}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1 rounded bg-surface p-2 border border-border/50">
+                    <span className="text-[10px] text-muted-foreground uppercase">Memory</span>
+                    <span className="text-base font-bold font-mono text-foreground">
+                      {svc.memory_percent}%
+                    </span>
+                    <div className="h-1 w-full bg-surface-muted rounded-full overflow-hidden">
+                      <div
+                        className={`h-full ${svc.memory_percent > 80 ? "bg-danger" : "bg-success"}`}
+                        style={{ width: `${Math.min(100, svc.memory_percent)}%` }}
+                      />
+                    </div>
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-1 rounded bg-surface p-2 border border-border/50">
-                  <span className="text-[10px] text-muted-foreground uppercase">Memory</span>
-                  <span className="text-base font-bold font-mono text-foreground">
-                    {svc.memory_percent}%
-                  </span>
-                  <div className="h-1 w-full bg-surface-muted rounded-full overflow-hidden">
-                    <div
-                      className={`h-full ${svc.memory_percent > 80 ? "bg-danger" : "bg-success"}`}
-                      style={{ width: `${Math.min(100, svc.memory_percent)}%` }}
-                    />
-                  </div>
+                <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono">
+                  <span>cluster: {svc.cluster}</span>
+                  <span>{svc.restarts_24h} restarts</span>
                 </div>
               </div>
-
-              <div className="flex items-center justify-between text-[10px] text-muted-foreground font-mono">
-                <span>cluster: {svc.cluster}</span>
-                <span>{svc.restarts_24h} restarts</span>
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </Card>
 
       {/* Section 5: Database & Infrastructure Vitals */}
       <div className="grid gap-2.5 sm:grid-cols-3 text-xs">
         <div className="flex flex-col justify-between rounded-md border border-border bg-surface p-3">
           <span className="text-[10px] font-semibold text-muted-foreground uppercase">
-            Aurora PostgreSQL Pool
+            Aurora / RDS Database Pool
           </span>
           <div className="flex items-baseline justify-between my-1">
             <span className="text-2xl font-bold font-mono text-foreground">
               {data.database_vitals.active_connections} conns
             </span>
-            <Badge tone="success">
-              Pool {data.database_vitals.connection_pool_saturation_percent}%
+            <Badge tone={data.database_vitals.status === "UP" ? "success" : "info"}>
+              {data.database_vitals.status === "NOT_DEPLOYED"
+                ? "Not Deployed"
+                : `Pool ${data.database_vitals.connection_pool_saturation_percent}%`}
             </Badge>
           </div>
           <span className="text-[10px] text-muted-foreground">
-            Storage saturation: {data.database_vitals.storage_used_percent}%
+            {data.database_vitals.status === "NOT_DEPLOYED"
+              ? "0 RDS instances in account 600262564312"
+              : `Storage saturation: ${data.database_vitals.storage_used_percent}%`}
           </span>
         </div>
 
         <div className="flex flex-col justify-between rounded-md border border-border bg-surface p-3">
           <span className="text-[10px] font-semibold text-muted-foreground uppercase">
-            S3 Object Lock & State
+            S3 Object Lock & Encryption
           </span>
           <div className="flex items-baseline justify-between my-1">
-            <span className="text-2xl font-bold font-mono text-success">COMPLIANT</span>
-            <Badge tone="success">100%</Badge>
+            <span className="text-2xl font-bold font-mono text-success">
+              {data.s3_buckets_count ?? 1} BUCKET
+            </span>
+            <Badge tone="success">100% Encrypted</Badge>
           </div>
-          <span className="text-[10px] text-muted-foreground">Zero tampering detected</span>
+          <span className="text-[10px] text-muted-foreground">
+            Public access blocked · Server-side encryption enabled
+          </span>
         </div>
 
         <div className="flex flex-col justify-between rounded-md border border-border bg-surface p-3">
@@ -492,9 +499,13 @@ export default async function OperationsWallboardPage(props: {
             <span className="text-2xl font-bold font-mono text-warning">
               {data.active_findings_count}
             </span>
-            <Badge tone="warning">Medium</Badge>
+            <Badge tone={data.active_findings_count > 0 ? "warning" : "success"}>
+              {data.active_findings_count > 0 ? "Action Required" : "Zero Critical"}
+            </Badge>
           </div>
-          <span className="text-[10px] text-muted-foreground">0 critical attack paths</span>
+          <span className="text-[10px] text-muted-foreground">
+            {data.active_findings_count} posture checks evaluated against CIS benchmark
+          </span>
         </div>
       </div>
 

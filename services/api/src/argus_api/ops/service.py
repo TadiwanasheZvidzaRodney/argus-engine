@@ -221,7 +221,8 @@ def generate_ops_timeseries(
     time_range: str = "today",
     *,
     firing_count: int = 0,
-    running_ecs_tasks: int = 4,
+    running_ecs_tasks: int = 0,
+    has_traffic: bool = False,
     reference_time: datetime | None = None,
 ) -> list[dict[str, Any]]:
     """Generate time-series telemetry buckets for Golden Signals based on range."""
@@ -246,17 +247,27 @@ def generate_ops_timeseries(
             m = cur.minute
             time_val = h + (m / 60.0)
             wave = max(0.0, math.sin(max(0.0, min(1.0, (time_val - 4.0) / 19.0)) * math.pi))
-            vol = int(18000 + 34200 * (wave**1.2))
-            lat_p95 = round(14.2 + 3.8 * wave, 1)
-            lat_p99 = round(lat_p95 * 1.62, 1)
-            avail = round(99.96 - (0.04 * wave), 2)
-            err_rate = round(0.010 + 0.008 * wave, 3)
-            err_5xx = 0
 
-            if firing_count > 0 and cur >= now - timedelta(hours=2):
-                avail = max(98.50, round(avail - (0.15 * firing_count), 2))
-                err_rate = round(err_rate + (0.04 * firing_count), 3)
-                err_5xx = firing_count * 2
+            if has_traffic:
+                vol = int(18000 + 34200 * (wave**1.2))
+                lat_p95 = round(14.2 + 3.8 * wave, 1)
+                lat_p99 = round(lat_p95 * 1.62, 1)
+                avail = round(99.96 - (0.04 * wave), 2)
+                err_rate = round(0.010 + 0.008 * wave, 3)
+                err_5xx = 0
+                if firing_count > 0 and cur >= now - timedelta(hours=2):
+                    avail = max(98.50, round(avail - (0.15 * firing_count), 2))
+                    err_rate = round(err_rate + (0.04 * firing_count), 3)
+                    err_5xx = firing_count * 2
+                pool_sat = round(18.0 + 8.5 * wave, 1)
+            else:
+                vol = 0
+                lat_p95 = 0.0
+                lat_p99 = 0.0
+                avail = 100.0
+                err_rate = 0.0
+                err_5xx = 0
+                pool_sat = 0.0
 
             points.append({
                 "timestamp": cur.isoformat(),
@@ -269,7 +280,7 @@ def generate_ops_timeseries(
                 "errors_5xx_count": err_5xx,
                 "ecs_running_tasks": running_ecs_tasks,
                 "db_pool_errors": 0,
-                "db_pool_saturation_percent": round(18.0 + 8.5 * wave, 1),
+                "db_pool_saturation_percent": pool_sat,
             })
             cur += timedelta(minutes=step_minutes)
 
@@ -281,16 +292,27 @@ def generate_ops_timeseries(
             h = cur.hour
             time_val = h
             wave = max(0.0, math.sin(max(0.0, min(1.0, (time_val - 4.0) / 19.0)) * math.pi))
-            vol = int(18000 + 34200 * (wave**1.2))
-            lat_p95 = round(14.2 + 3.8 * wave, 1)
-            lat_p99 = round(lat_p95 * 1.62, 1)
-            avail = round(99.96 - (0.04 * wave), 2)
-            err_rate = round(0.010 + 0.008 * wave, 3)
-            err_5xx = 0
-            if firing_count > 0 and i >= 22:
-                avail = max(98.50, round(avail - (0.15 * firing_count), 2))
-                err_rate = round(err_rate + (0.04 * firing_count), 3)
-                err_5xx = firing_count * 2
+
+            if has_traffic:
+                vol = int(18000 + 34200 * (wave**1.2))
+                lat_p95 = round(14.2 + 3.8 * wave, 1)
+                lat_p99 = round(lat_p95 * 1.62, 1)
+                avail = round(99.96 - (0.04 * wave), 2)
+                err_rate = round(0.010 + 0.008 * wave, 3)
+                err_5xx = 0
+                if firing_count > 0 and i >= 22:
+                    avail = max(98.50, round(avail - (0.15 * firing_count), 2))
+                    err_rate = round(err_rate + (0.04 * firing_count), 3)
+                    err_5xx = firing_count * 2
+                pool_sat = round(18.0 + 8.5 * wave, 1)
+            else:
+                vol = 0
+                lat_p95 = 0.0
+                lat_p99 = 0.0
+                avail = 100.0
+                err_rate = 0.0
+                err_5xx = 0
+                pool_sat = 0.0
 
             points.append({
                 "timestamp": cur.isoformat(),
@@ -303,7 +325,7 @@ def generate_ops_timeseries(
                 "errors_5xx_count": err_5xx,
                 "ecs_running_tasks": running_ecs_tasks,
                 "db_pool_errors": 0,
-                "db_pool_saturation_percent": round(18.0 + 8.5 * wave, 1),
+                "db_pool_saturation_percent": pool_sat,
             })
 
     elif time_range == "7d":
@@ -314,16 +336,27 @@ def generate_ops_timeseries(
             time_val = h
             wave = max(0.0, math.sin(max(0.0, min(1.0, (time_val - 4.0) / 19.0)) * math.pi))
             weekday_mult = 0.75 if cur.weekday() in (5, 6) else 1.0
-            vol = int((18000 + 34200 * (wave**1.2)) * weekday_mult)
-            lat_p95 = round((14.2 + 3.8 * wave) * (0.95 if weekday_mult < 1.0 else 1.0), 1)
-            lat_p99 = round(lat_p95 * 1.62, 1)
-            avail = round(99.95 - (0.03 * wave), 2)
-            err_rate = round(0.012 + 0.006 * wave, 3)
-            err_5xx = 0
-            if firing_count > 0 and i >= 26:
-                avail = max(98.50, round(avail - (0.15 * firing_count), 2))
-                err_rate = round(err_rate + (0.04 * firing_count), 3)
-                err_5xx = firing_count * 2
+
+            if has_traffic:
+                vol = int((18000 + 34200 * (wave**1.2)) * weekday_mult)
+                lat_p95 = round((14.2 + 3.8 * wave) * (0.95 if weekday_mult < 1.0 else 1.0), 1)
+                lat_p99 = round(lat_p95 * 1.62, 1)
+                avail = round(99.95 - (0.03 * wave), 2)
+                err_rate = round(0.012 + 0.006 * wave, 3)
+                err_5xx = 0
+                if firing_count > 0 and i >= 26:
+                    avail = max(98.50, round(avail - (0.15 * firing_count), 2))
+                    err_rate = round(err_rate + (0.04 * firing_count), 3)
+                    err_5xx = firing_count * 2
+                pool_sat = round(18.0 + 8.5 * wave, 1)
+            else:
+                vol = 0
+                lat_p95 = 0.0
+                lat_p99 = 0.0
+                avail = 100.0
+                err_rate = 0.0
+                err_5xx = 0
+                pool_sat = 0.0
 
             label = f"{cur.strftime('%a')} {h:02d}h"
             points.append({
@@ -337,7 +370,7 @@ def generate_ops_timeseries(
                 "errors_5xx_count": err_5xx,
                 "ecs_running_tasks": running_ecs_tasks,
                 "db_pool_errors": 0,
-                "db_pool_saturation_percent": round(18.0 + 8.5 * wave, 1),
+                "db_pool_saturation_percent": pool_sat,
             })
 
     elif time_range == "30d":
@@ -345,12 +378,23 @@ def generate_ops_timeseries(
         for i in range(30):
             cur = start_day + timedelta(days=i)
             weekday_mult = 0.72 if cur.weekday() in (5, 6) else 1.0
-            vol = int(48500 * weekday_mult)
-            lat_p95 = round(16.4 * (0.92 if weekday_mult < 1.0 else 1.0), 1)
-            lat_p99 = round(lat_p95 * 1.6, 1)
-            avail = round(99.95 - (0.02 if i == 14 else 0.0), 2)
-            err_rate = round(0.012 if i != 14 else 0.035, 3)
-            err_5xx = 1 if i == 14 else (firing_count if (firing_count > 0 and i == 29) else 0)
+
+            if has_traffic:
+                vol = int(48500 * weekday_mult)
+                lat_p95 = round(16.4 * (0.92 if weekday_mult < 1.0 else 1.0), 1)
+                lat_p99 = round(lat_p95 * 1.6, 1)
+                avail = round(99.95 - (0.02 if i == 14 else 0.0), 2)
+                err_rate = round(0.012 if i != 14 else 0.035, 3)
+                err_5xx = 1 if i == 14 else (firing_count if (firing_count > 0 and i == 29) else 0)
+                pool_sat = round(24.0 * weekday_mult, 1)
+            else:
+                vol = 0
+                lat_p95 = 0.0
+                lat_p99 = 0.0
+                avail = 100.0
+                err_rate = 0.0
+                err_5xx = 0
+                pool_sat = 0.0
 
             label = cur.strftime("%b %d")
             points.append({
@@ -364,7 +408,7 @@ def generate_ops_timeseries(
                 "errors_5xx_count": err_5xx,
                 "ecs_running_tasks": running_ecs_tasks,
                 "db_pool_errors": 0,
-                "db_pool_saturation_percent": round(24.0 * weekday_mult, 1),
+                "db_pool_saturation_percent": pool_sat,
             })
 
     return points
@@ -398,13 +442,14 @@ async def build_ops_wallboard(
         .all()
     )
 
-    # 3. Graph resources (ECS, ALBs, RDS, Security Groups)
+    # 3. Graph resources (ECS, ALBs, RDS, Security Groups, S3)
     subgraph = await repo.load_security_subgraph(f"tnt_{tenant_id}")
     nodes = subgraph["nodes"]
 
     ecs_services: list[dict[str, Any]] = []
     alb_nodes: list[dict[str, Any]] = []
     rds_nodes: list[dict[str, Any]] = []
+    s3_buckets_count = 0
 
     for n in nodes:
         ntype = str(n.get("type", ""))
@@ -428,41 +473,8 @@ async def build_ops_wallboard(
             alb_nodes.append(n)
         elif ntype == "AWS::RDS::DBInstance":
             rds_nodes.append(n)
-
-    # If tenant has no ECS services yet, synthesize baseline services for the wallboard
-    if not ecs_services:
-        ecs_services = [
-            {
-                "name": "argus-api-service",
-                "cluster": "argus-prod",
-                "desired_tasks": 2,
-                "running_tasks": 2,
-                "cpu_percent": 14.8,
-                "memory_percent": 28.4,
-                "restarts_24h": 0,
-                "status": "healthy",
-            },
-            {
-                "name": "argus-worker-service",
-                "cluster": "argus-prod",
-                "desired_tasks": 2,
-                "running_tasks": 2,
-                "cpu_percent": 22.1,
-                "memory_percent": 41.2,
-                "restarts_24h": 0,
-                "status": "healthy",
-            },
-            {
-                "name": "argus-ws-gateway",
-                "cluster": "argus-prod",
-                "desired_tasks": 1,
-                "running_tasks": 1,
-                "cpu_percent": 8.5,
-                "memory_percent": 18.0,
-                "restarts_24h": 0,
-                "status": "healthy",
-            },
-        ]
+        elif ntype == "AWS::S3::Bucket":
+            s3_buckets_count += 1
 
     # Active critical findings count
     findings = (
@@ -481,11 +493,61 @@ async def build_ops_wallboard(
     firing_count = sum(1 for a in alerts if a.status == "FIRING")
     is_all_clear = firing_count == 0
 
-    total_running_tasks = sum(s.get("running_tasks", 0) for s in ecs_services) or 4
+    has_traffic = bool(ecs_services or alb_nodes)
+    total_running_tasks = sum(s.get("running_tasks", 0) for s in ecs_services)
+
+    if alb_nodes:
+        alb_vitals = {
+            "target_response_time_sec": 0.018,
+            "healthy_hosts": len(alb_nodes) * 2,
+            "unhealthy_hosts": 0,
+            "status": "UP",
+        }
+    else:
+        alb_vitals = {
+            "target_response_time_sec": 0.0,
+            "healthy_hosts": 0,
+            "unhealthy_hosts": 0,
+            "status": "NOT_DEPLOYED",
+        }
+
+    if rds_nodes:
+        database_vitals = {
+            "active_connections": 18,
+            "connection_pool_saturation_percent": 24.0,
+            "storage_used_percent": 38.5,
+            "status": "UP",
+        }
+    else:
+        database_vitals = {
+            "active_connections": 0,
+            "connection_pool_saturation_percent": 0.0,
+            "storage_used_percent": 0.0,
+            "status": "NOT_DEPLOYED",
+        }
+
+    if has_traffic:
+        golden_signals = {
+            "availability_percent": 99.95 if is_all_clear else 98.80,
+            "throughput_req_min": 48200,
+            "latency_p95_ms": 16.4,
+            "error_rate_percent": 0.012 if is_all_clear else 0.052,
+            "errors_5xx_count": 0 if is_all_clear else firing_count,
+        }
+    else:
+        golden_signals = {
+            "availability_percent": 100.0,
+            "throughput_req_min": 0,
+            "latency_p95_ms": 0.0,
+            "error_rate_percent": 0.0,
+            "errors_5xx_count": 0 if is_all_clear else firing_count,
+        }
+
     telemetry_history = generate_ops_timeseries(
         time_range=time_range,
         firing_count=firing_count,
         running_ecs_tasks=total_running_tasks,
+        has_traffic=has_traffic,
         reference_time=now,
     )
 
@@ -498,29 +560,15 @@ async def build_ops_wallboard(
             "firing_alerts_count": firing_count,
             "as_of": now.isoformat(),
         },
-        "golden_signals": {
-            "availability_percent": 99.95,
-            "throughput_req_min": 48200,
-            "latency_p95_ms": 16.4,
-            "error_rate_percent": 0.012,
-            "errors_5xx_count": 0 if is_all_clear else firing_count,
-        },
+        "golden_signals": golden_signals,
         "telemetry_history": telemetry_history,
         "time_range": time_range,
         "ecs_systems": ecs_services,
-        "database_vitals": {
-            "active_connections": 18,
-            "connection_pool_saturation_percent": 24.0,
-            "storage_used_percent": 38.5,
-            "status": "UP",
-        },
-        "alb_vitals": {
-            "target_response_time_sec": 0.018,
-            "healthy_hosts": 4,
-            "unhealthy_hosts": 0,
-            "status": "UP",
-        },
+        "database_vitals": database_vitals,
+        "alb_vitals": alb_vitals,
         "active_findings_count": len(findings),
+        "s3_buckets_count": s3_buckets_count,
+        "total_resources_count": len(nodes),
         "alerts": [
             {
                 "id": str(a.id),

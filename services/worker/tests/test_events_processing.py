@@ -9,7 +9,7 @@ from argus_worker.events.dedupe import DedupeStore
 from argus_worker.events.delta_applier import DeltaApplier
 from argus_worker.events.normalizer import normalize_cloudtrail_event, normalize_config_event
 
-TENANT = "tnt_0190c3a1-0000-7000-8000-000000000001"
+TENANT = f"tnt_{secrets.token_hex(16)}"
 ACCOUNT = "123456789012"
 
 
@@ -87,32 +87,38 @@ async def test_delta_applier_and_version_guard() -> None:
     repo = GraphRepository(driver)
     applier = DeltaApplier(repo, redis=None)
 
-    unique_inst = f"i-ver-{secrets.token_hex(4)}"
-    raw_event = {
-        "configurationItem": {
-            "configurationItemStatus": "OK",
-            "ARN": f"arn:aws:ec2:us-east-1:{ACCOUNT}:instance/{unique_inst}",
-            "resourceType": "AWS::EC2::Instance",
-            "awsAccountId": ACCOUNT,
-            "awsRegion": "us-east-1",
-            "configurationStateId": "10",
+    try:
+        unique_inst = f"i-ver-{secrets.token_hex(4)}"
+        raw_event = {
+            "configurationItem": {
+                "configurationItemStatus": "OK",
+                "ARN": f"arn:aws:ec2:us-east-1:{ACCOUNT}:instance/{unique_inst}",
+                "resourceType": "AWS::EC2::Instance",
+                "awsAccountId": ACCOUNT,
+                "awsRegion": "us-east-1",
+                "configurationStateId": "10",
+            }
         }
-    }
 
-    delta_v10 = normalize_config_event(TENANT, raw_event)
-    assert delta_v10 is not None
+        delta_v10 = normalize_config_event(TENANT, raw_event)
+        assert delta_v10 is not None
 
-    res1 = await applier.apply_delta(delta_v10)
-    assert res1.applied is True
-    assert res1.seq > 0
+        res1 = await applier.apply_delta(delta_v10)
+        assert res1.applied is True
+        assert res1.seq > 0
 
-    # Out-of-order event with older version (v5) must be dropped
-    raw_event["configurationItem"]["configurationStateId"] = "5"
-    delta_v5 = normalize_config_event(TENANT, raw_event)
-    assert delta_v5 is not None
+        # Out-of-order event with older version (v5) must be dropped
+        raw_event["configurationItem"]["configurationStateId"] = "5"
+        delta_v5 = normalize_config_event(TENANT, raw_event)
+        assert delta_v5 is not None
 
-    res2 = await applier.apply_delta(delta_v5)
-    assert res2.applied is False
-    assert res2.reason == "out-of-order version"
-
-    await driver.close()
+        res2 = await applier.apply_delta(delta_v5)
+        assert res2.applied is False
+        assert res2.reason == "out-of-order version"
+    finally:
+        async with driver.session() as session:
+            await session.run(
+                "MATCH (n:Resource {tenant_id: $tenant}) DETACH DELETE n",
+                {"tenant": TENANT},
+            )
+        await driver.close()

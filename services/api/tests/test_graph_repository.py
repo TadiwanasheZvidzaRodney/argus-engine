@@ -54,23 +54,30 @@ async def test_graph_repository_upsert_and_neighborhood(repo: GraphRepository) -
         )
     ]
 
-    # 1. Upsert nodes & edges
-    assert await repo.upsert_nodes(tenant_id, nodes) == 2
-    assert await repo.upsert_edges(tenant_id, edges) == 1
+    try:
+        # 1. Upsert nodes & edges
+        assert await repo.upsert_nodes(tenant_id, nodes) == 2
+        assert await repo.upsert_edges(tenant_id, edges) == 1
 
-    # 2. Query neighborhood
-    neighborhood = await repo.query_neighborhood(tenant_id, root_id=vpc_arn, depth=1)
-    assert neighborhood["root"] is not None
-    assert neighborhood["root"]["id"] == vpc_arn
-    assert len(neighborhood["nodes"]) == 2
-    assert len(neighborhood["edges"]) == 1
-    assert neighborhood["edges"][0]["type"] == "CONTAINS"
+        # 2. Query neighborhood
+        neighborhood = await repo.query_neighborhood(tenant_id, root_id=vpc_arn, depth=1)
+        assert neighborhood["root"] is not None
+        assert neighborhood["root"]["id"] == vpc_arn
+        assert len(neighborhood["nodes"]) == 2
+        assert len(neighborhood["edges"]) == 1
+        assert neighborhood["edges"][0]["type"] == "CONTAINS"
 
-    # 3. Multi-tenant isolation: another tenant cannot see this VPC
-    other_tenant = f"tnt_{secrets.token_hex(16)}"
-    isolated = await repo.query_neighborhood(other_tenant, root_id=vpc_arn, depth=1)
-    assert isolated["root"] is None
-    assert isolated["nodes"] == []
+        # 3. Multi-tenant isolation: another tenant cannot see this VPC
+        other_tenant = f"tnt_{secrets.token_hex(16)}"
+        isolated = await repo.query_neighborhood(other_tenant, root_id=vpc_arn, depth=1)
+        assert isolated["root"] is None
+        assert isolated["nodes"] == []
+    finally:
+        async with repo.driver.session() as session:
+            await session.run(
+                "MATCH (n:Resource {tenant_id: $tenant}) DETACH DELETE n",
+                {"tenant": tenant_id},
+            )
 
 
 async def test_tenant_guardrail_rejects_missing_tenant_id(repo: GraphRepository) -> None:

@@ -119,3 +119,42 @@ test("ops wallboard renders time-series graphs and switches range filters", asyn
   await expect(page).toHaveURL(/range=30d/);
   await expect(page.getByText("Past 30 Days").first()).toBeVisible();
 });
+
+test("security posture exposes evidence, domains and persistent UTC history ranges", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/login");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page).toHaveURL(/\/overview/);
+  await page.goto("/security");
+  await expect(page.getByRole("heading", { name: "Security posture", exact: true })).toBeVisible();
+  await expect(page.getByRole("meter", { name: "Argus posture indicator" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Security domains" })).toBeVisible();
+  const ranges = page.getByRole("navigation", { name: "Security history range" });
+  await expect(ranges.getByRole("link", { name: "Today (00:00 UTC)" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  for (const [name, range] of [
+    ["Last 24h", "24h"],
+    ["7 Days", "7d"],
+    ["30 Days", "30d"],
+  ]) {
+    await ranges.getByRole("link", { name, exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`range=${range}`));
+    await expect(ranges.getByRole("link", { name, exact: true })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  }
+  await page.reload();
+  await expect(ranges.getByRole("link", { name: "30 Days" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await expect(page.getByRole("heading", { name: "Finding inflow & resolution" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Open risk backlog" })).toBeVisible();
+  expect(errors).toEqual([]);
+});

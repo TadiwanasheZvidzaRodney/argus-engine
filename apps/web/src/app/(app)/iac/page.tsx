@@ -4,6 +4,7 @@ import {
   ConnectRepoCard,
   ScanDriftButton,
   SynthesizeDriftPrButton,
+  ApproveProposalButton,
 } from "@/components/iac/iac-actions";
 import { apiFetch } from "@/lib/api";
 import {
@@ -41,10 +42,11 @@ async function loadPullRequests(): Promise<IacPullRequest[]> {
 }
 
 export default async function IacPage() {
-  const [repositories, driftRecords, pullRequests] = await Promise.all([
+  const [repositories, driftRecords, pullRequests, github] = await Promise.all([
     loadRepositories(),
     loadDrift(),
     loadPullRequests(),
+    apiFetch<{ enabled: boolean; owner?: string }>("/api/v1/iac/github/status").catch(() => null),
   ]);
 
   const activeDrift = driftRecords.filter((d) => d.status === "DRIFTED");
@@ -58,9 +60,8 @@ export default async function IacPage() {
             GitOps Bridge & IaC Drift Remediation
           </h1>
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-            Eliminate ClickOps drift between live cloud infrastructure and checked-in
-            Terraform/OpenTofu code. Every approved action compiles an exact unified HCL diff and
-            opens an automated Pull Request.
+            Connect a validated GitHub IaC source and prepare reviewable remediation proposals. Only
+            explicit approval publishes a draft PR. No automatic merge or AWS deployment.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -68,14 +69,21 @@ export default async function IacPage() {
           <ConnectRepoCard />
         </div>
       </header>
+      <p className="rounded-md border border-border bg-surface p-3 text-xs text-muted-foreground">
+        {github?.enabled
+          ? `GitHub bridge configured for ${github.owner}. Access uses the API host’s gh keyring; repository access is revalidated before publication.`
+          : "GitHub bridge unavailable or disabled. Configure the server-side tenant/login/repository binding and restart the API."}
+      </p>
 
       {/* KPI Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card title="Connected Repos">
           <p className="text-2xl font-semibold tabular-nums text-foreground">
-            {repositories.length}
+            {repositories.filter((repo) => repo.status === "active").length}
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">GitHub & GitLab IaC sources.</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Check status for validated GitHub access.
+          </p>
         </Card>
 
         <Card title="Active Drift Items">
@@ -88,22 +96,22 @@ export default async function IacPage() {
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
             {activeDrift.length === 0
-              ? "Infrastructure in sync with code"
-              : "Manual ClickOps detected"}
+              ? "No graph heuristics recorded; not proof of IaC parity"
+              : "Graph-based candidates; verify against actual IaC"}
           </p>
         </Card>
 
-        <Card title="Generated Pull Requests">
+        <Card title="Proposals & Pull Requests">
           <p className="text-2xl font-semibold tabular-nums text-info">{pullRequests.length}</p>
           <p className="mt-1 text-xs text-muted-foreground">{openPrs.length} currently open.</p>
         </Card>
 
         <Card title="GitOps Policy">
           <div className="mt-1 flex items-center gap-1.5">
-            <Badge tone="success">NO-DRIFT ACTIVE</Badge>
+            <Badge tone="info">APPROVAL REQUIRED</Badge>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Actions synthesize HCL patches automatically.
+            Draft Markdown proposals only. IaC edits need separate review.
           </p>
         </Card>
       </div>
@@ -135,7 +143,9 @@ export default async function IacPage() {
                     <strong>{repo.iac_path}</strong>
                   </span>
                 </div>
-                <Badge tone="success">{repo.status}</Badge>
+                <Badge tone={repo.status === "active" ? "success" : "warning"}>
+                  {repo.status === "active" ? "Access validated at connection" : repo.status}
+                </Badge>
               </div>
             ))}
           </div>
@@ -145,12 +155,12 @@ export default async function IacPage() {
       {/* Detected ClickOps Drift */}
       <Card
         title="Detected ClickOps Drift"
-        description="Live cloud configuration modifications made outside Terraform."
+        description="Graph heuristics only. Terraform state and repository content are not compared by this scan."
       >
         {activeDrift.length === 0 ? (
           <EmptyState
             title="Zero IaC Drift Detected"
-            description="Your live cloud infrastructure strictly matches your checked-in Terraform baseline."
+            description="No candidates recorded. This does not prove Terraform state matches AWS."
           />
         ) : (
           <div className="flex flex-col gap-3">
@@ -183,13 +193,12 @@ export default async function IacPage() {
 
       {/* Generated GitOps Pull Requests */}
       <Card
-        title="Synthesized GitOps Pull Requests"
-        description="Automated HCL diffs compiled and opened against customer Git repositories."
+        title="GitOps proposals & draft pull requests"
+        description="Review the exact proposal, then explicitly approve publication. No executable Terraform patch is generated."
       >
         {pullRequests.length === 0 ? (
           <p className="text-xs text-muted-foreground">
-            No pull requests generated yet. Remediating a finding or drift item will compile an HCL
-            patch and open a PR.
+            No proposals yet. Prepare a proposal from a candidate, review it here, then approve.
           </p>
         ) : (
           <div className="flex flex-col gap-3">
@@ -201,14 +210,18 @@ export default async function IacPage() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Badge tone={prStatusTone(pr.status)}>{pr.status}</Badge>
-                    <a
-                      href={pr.pr_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-semibold text-xs text-foreground hover:text-accent underline underline-offset-4"
-                    >
-                      PR #{pr.pr_number}: {pr.title} ↗
-                    </a>
+                    {pr.pr_number > 0 ? (
+                      <a
+                        href={pr.pr_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-semibold text-xs text-foreground hover:text-accent underline underline-offset-4"
+                      >
+                        PR #{pr.pr_number}: {pr.title} ↗
+                      </a>
+                    ) : (
+                      <span className="text-xs font-semibold">{pr.title}</span>
+                    )}
                   </div>
                   <span className="font-mono text-[10px] text-muted-foreground">
                     branch: {pr.branch_name}
@@ -218,6 +231,7 @@ export default async function IacPage() {
                 <div className="rounded-md border border-border bg-surface-muted p-2 font-mono text-[11px] overflow-x-auto text-foreground">
                   <pre className="max-h-40 overflow-y-auto">{pr.hcl_diff}</pre>
                 </div>
+                {pr.status === "PENDING_APPROVAL" && <ApproveProposalButton proposal={pr} />}
               </div>
             ))}
           </div>

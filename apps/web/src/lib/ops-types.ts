@@ -30,14 +30,14 @@ export interface DatabaseVitals {
   active_connections: number;
   connection_pool_saturation_percent: number;
   storage_used_percent: number;
-  status: "UP" | "DOWN";
+  status: "UP" | "DOWN" | "NOT_DEPLOYED";
 }
 
 export interface AlbVitals {
   target_response_time_sec: number;
   healthy_hosts: number;
   unhealthy_hosts: number;
-  status: "UP" | "DOWN";
+  status: "UP" | "DOWN" | "NOT_DEPLOYED";
 }
 
 export interface OpsAlertItem {
@@ -81,6 +81,8 @@ export interface OpsWallboardData {
   database_vitals: DatabaseVitals;
   alb_vitals: AlbVitals;
   active_findings_count: number;
+  s3_buckets_count?: number;
+  total_resources_count?: number;
   alerts: OpsAlertItem[];
 }
 

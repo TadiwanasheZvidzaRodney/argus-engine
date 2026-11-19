@@ -2,12 +2,19 @@ from __future__ import annotations
 
 import secrets
 
+from argus_core.events import new_uuid7
+from argus_core.graph.client import build_graph_driver
+from argus_core.settings import Settings
 from fastapi.testclient import TestClient
 
 ACCOUNT = "123456789012"
 
 
 def test_event_ingest_and_deduplication(client: TestClient) -> None:
+    test_tenant = str(new_uuid7())
+    test_headers = {
+        "Authorization": f"stub:{test_tenant}:{test_tenant}:owner:tester@argus.local",
+    }
     event_id = f"aws-config-evt-{secrets.token_hex(8)}"
     raw_payload = {
         "configurationItem": {
@@ -22,26 +29,40 @@ def test_event_ingest_and_deduplication(client: TestClient) -> None:
         }
     }
 
-    # 1. Ingest event
-    res1 = client.post(
-        "/api/v1/events/ingest",
-        json={"event_id": event_id, "source": "aws.config", "payload": raw_payload},
-        headers={"Idempotency-Key": f"idem-{event_id}-1"},
-    )
-    assert res1.status_code == 200
-    data1 = res1.json()
-    assert data1["status"] == "applied"
-    assert data1["seq"] is not None
+    try:
+        # 1. Ingest event
+        res1 = client.post(
+            "/api/v1/events/ingest",
+            json={"event_id": event_id, "source": "aws.config", "payload": raw_payload},
+            headers={"Idempotency-Key": f"idem-{event_id}-1", **test_headers},
+        )
+        assert res1.status_code == 200
+        data1 = res1.json()
+        assert data1["status"] == "applied"
+        assert data1["seq"] is not None
 
-    # 2. Duplicate ingest with same event_id
-    res2 = client.post(
-        "/api/v1/events/ingest",
-        json={"event_id": event_id, "source": "aws.config", "payload": raw_payload},
-        headers={"Idempotency-Key": f"idem-{event_id}-2"},
-    )
-    assert res2.status_code == 200
-    data2 = res2.json()
-    assert data2["status"] == "duplicate"
+        # 2. Duplicate ingest with same event_id
+        res2 = client.post(
+            "/api/v1/events/ingest",
+            json={"event_id": event_id, "source": "aws.config", "payload": raw_payload},
+            headers={"Idempotency-Key": f"idem-{event_id}-2", **test_headers},
+        )
+        assert res2.status_code == 200
+        data2 = res2.json()
+        assert data2["status"] == "duplicate"
+    finally:
+        driver = build_graph_driver(Settings(neo4j_uri="bolt://127.0.0.1:7687", _env_file=None))
+        import asyncio
+
+        async def cleanup() -> None:
+            async with driver.session() as session:
+                await session.run(
+                    "MATCH (n:Resource {tenant_id: $tenant}) DETACH DELETE n",
+                    {"tenant": f"tnt_{test_tenant}"},
+                )
+            await driver.close()
+
+        asyncio.run(cleanup())
 
 
 def test_dlq_and_replay_endpoints(client: TestClient) -> None:
